@@ -10,12 +10,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import org.junit.Assume.assumeNotNull
 
 class LcscOrderWorkbookParserTest {
     @Test
     fun parses_local_statement_when_supplied() {
-        val path = System.getenv("LCSC_ORDER_SAMPLE") ?: return
-        val parsed = File(path).inputStream().use(LcscOrderWorkbookParser::parse)
+        val path = System.getenv("LCSC_ORDER_SAMPLE")
+        assumeNotNull(path)
+        val parsed = File(requireNotNull(path)).inputStream().use(LcscOrderWorkbookParser::parse)
         assertEquals(191, parsed.rows.size)
         assertEquals(2, parsed.skippedFees)
         assertEquals(182, parsed.rows.map { it.sku }.distinct().size)
@@ -49,7 +51,22 @@ class LcscOrderWorkbookParserTest {
         }
     }
 
-    private fun statement(paddingRows: Int = 0, invalidProduct: Boolean = false): ByteArray {
+    @Test
+    fun skips_merged_statement_footer_at_row_199() {
+        val parsed = LcscOrderWorkbookParser.parse(ByteArrayInputStream(statement(footer = true)))
+        assertEquals(1, parsed.rows.size)
+        assertEquals("8", parsed.rows.single().quantityText)
+        assertEquals(1, parsed.skippedFees)
+    }
+
+    @Test
+    fun note_prefix_does_not_hide_product_data_with_missing_sku() {
+        assertFailsWith<IllegalArgumentException> {
+            LcscOrderWorkbookParser.parse(ByteArrayInputStream(statement(footer = true, invalidProduct = true)))
+        }
+    }
+
+    private fun statement(paddingRows: Int = 0, invalidProduct: Boolean = false, footer: Boolean = false): ByteArray {
         val output = ByteArrayOutputStream()
         val book = Workbook.createWorkbook(output)
         val sheet = book.createSheet("Order details", 0)
@@ -64,7 +81,11 @@ class LcscOrderWorkbookParserTest {
         sheet.addCell(Label(2, 2 + paddingRows, "价外费用（配送费）"))
         item(3, 5.0)
         sheet.addCell(Label(0, 4 + paddingRows, "商品合计金额"))
-        if (invalidProduct) {
+        if (footer) {
+            sheet.mergeCells(0, 198, 1, 198)
+            sheet.addCell(Label(0, 198, "说明：\n1、未付款取消的订单不会导出"))
+            if (invalidProduct) sheet.addCell(Label(2, 198, "Missing SKU"))
+        } else if (invalidProduct) {
             sheet.addCell(Label(0, 5 + paddingRows, "SO-2"))
             sheet.addCell(Label(2, 5 + paddingRows, "Missing SKU"))
         }

@@ -67,6 +67,11 @@ internal object LcscOrderWorkbookParser {
             val sku = value("商品编号").uppercase(Locale.ROOT)
             val order = value("订单编号")
             val productName = value("商品名称")
+            // The statement ends with a merged note in the order-number column.
+            // Only skip a note without product data; malformed product rows must still fail.
+            if ((order.startsWith("说明：") || order.startsWith("说明:")) &&
+                requiredHeaders.filter { it != "订单编号" }.all { value(it).isBlank() }
+            ) continue
             if (sku.isBlank() && (order.isBlank() || order in summaryLabels)) {
                 if (productName.contains("配送费")) skippedFees++
                 continue
