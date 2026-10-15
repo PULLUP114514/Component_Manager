@@ -705,9 +705,15 @@ Native Settings / About use standalone GitHub Release parsers and anonymous
 HTTP clients, independent of inventory sync and its bearer token. A device-local
 update-channel preference defaults to Stable; Dev also considers prereleases.
 Semantic version comparisons, channel filtering, bounded responses, timeouts and
-repository-specific asset URL validation determine the update UI. Installers
-open only after a user click through the system browser. No background updater,
-self-replacement, auto-install or new database tables are needed for this flow.
+repository-specific asset URL validation determine the update UI. Android uses
+DownloadManager for user-initiated APK downloads, with one persisted task in
+SharedPreferences and an app-specific download directory. The About pane resumes
+progress display, cancellation, retry and explicit cleanup after recreation.
+Installation uses a granted content URI and the Android system installer after
+an explicit click; unknown-source permission is requested only at installation.
+Completed upgrades clean the old task when the update pane is opened. Windows
+retains browser ZIP downloads. No automatic version polling, silent installation
+or inventory database changes are introduced.
 See [application updates](app-updates.md) for platform-specific installation.
 
 ## Catalog-name compatibility and native connection routing

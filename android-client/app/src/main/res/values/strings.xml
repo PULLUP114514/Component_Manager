@@ -338,7 +338,22 @@
     <string name="settings_update_open_all_releases">Browse all GitHub Releases</string>
     <string name="settings_update_release_date">Published: %1$s</string>
     <string name="settings_browser_open_failed">Could not open the system browser. Please retry or copy the project address above.</string>
-    <string name="settings_update_install_steps">Update flow: check the release, review its notes, download the APK in your browser, then approve installation in Android. A release signed with the same key can replace the installed app while preserving local inventory. Debug and release signatures differ, so a debug build cannot be replaced directly; do not uninstall the app just to update, because uninstalling can remove local inventory.</string>
+    <string name="settings_update_install_steps">Download updates here, then tap Install update and confirm in Android. If asked, allow Component Vault to install apps. Same-signature releases preserve local inventory; do not uninstall to update. Downloads still require access to GitHub; the release page remains available as a fallback.</string>
+    <string name="update_download_target">Update package: %1$s</string>
+    <string name="update_download_progress">%1$d%% · %2$s / %3$s MB</string>
+    <string name="update_download_waiting">Preparing download · %1$s MB received</string>
+    <string name="update_download_paused">Waiting for network or system retry. Download will resume automatically when possible.</string>
+    <string name="update_download_background">Downloading in the background. You can leave this page and return later.</string>
+    <string name="update_download_ready">Download complete. Tap Install update to open the system installer.</string>
+    <string name="update_download_failed">Download unavailable (code %1$d). Check your connection and free storage, then retry.</string>
+    <string name="update_install_action">Install update</string>
+    <string name="update_retry_action">Retry download</string>
+    <string name="update_cancel_action">Cancel download</string>
+    <string name="update_clear_action">Delete package</string>
+    <string name="update_error_title">Update could not continue</string>
+    <string name="update_download_unavailable">Cannot access the system download service. Check that Download Manager is enabled and storage is available, then try again.</string>
+    <string name="update_install_failed">Cannot open the installer. If the package was removed, delete this download and download it again. You can also use the release page.</string>
+    <string name="update_install_permission_needed">Installation permission was not granted. Tap Install update again and allow this app to install updates.</string>
 
     <string name="importer_title">Import components</string>
     <string name="importer_subtitle">Use JLC text, QR labels, supplier packaging OCR, or manual refinement before saving.</string>

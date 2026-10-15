@@ -720,6 +720,7 @@ private fun SettingsAboutPane(showHeading: Boolean = true) {
             result = updateResult,
             onOpenRelease = ::openTrustedUrl,
         )
+        ApkUpdateDownloadPane((updateResult as? ReleaseCheckResult.UpdateAvailable)?.release)
         OutlinedButton(
             onClick = { openTrustedUrl(RELEASES_URL) },
             modifier = Modifier.fillMaxWidth(),
@@ -759,15 +760,7 @@ private fun SettingsUpdateResult(
                 fontWeight = FontWeight.SemiBold,
             )
             ReleaseMetadata(result.release, onOpenRelease)
-            val apkUrl = result.release.apkUrl
-            if (apkUrl != null) {
-                Button(
-                    onClick = { onOpenRelease(apkUrl) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.settings_update_download_apk))
-                }
-            } else {
+            if (result.release.apkUrl == null) {
                 Text(
                     text = stringResource(R.string.settings_update_missing_apk),
                     color = MaterialTheme.colorScheme.error,

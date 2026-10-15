@@ -15,6 +15,8 @@ Component Vault 面向电子元器件的入库、出库、查找与盘点。Andr
 
 日常功能与界面调整先发布 **dev 预发布**，通过实际使用验证后再决定正式发布。应用“设置 → 关于”可选择更新通道；dev 安装包见 [全部 Releases](https://github.com/Rafael-ban/Component_Manager/releases)。发布渠道由更新日志的最新具体版本标题决定：`0.7.7-dev.1` 为预发布，`0.7.7` 为正式版；只修改 `Unreleased` 不发布。dev 不会替换 Docker `latest`，详见[发布流程](docs/runbook.md#versioning-workflow)。
 
+Android 从 `0.7.8-dev.9` 起支持在“设置 → 关于”直接下载更新，查看进度、取消或重试，完成后打开系统安装界面；无需先跳转 GitHub 网页。Windows 仍下载便携 ZIP。具体步骤见[应用更新](docs/app-updates.md)。
+
 ## 平台与能力
 
 | 平台 | 技术与用途 |

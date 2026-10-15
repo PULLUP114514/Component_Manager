@@ -82,7 +82,7 @@ internal object GitHubReleaseParser {
                     .firstOrNull { it.optString("name") == apkName }
             }
         val apkUrl = apkAsset?.optString("browser_download_url")?.trim()?.takeIf { it.isNotBlank() }
-        if (!isTrustedReleasePage(pageUrl, tag) || (apkUrl != null && !isTrustedApk(apkUrl, tag))) {
+        if (!isTrustedReleasePage(pageUrl, tag) || (apkUrl != null && !isTrustedApkUrl(apkUrl, tag))) {
             return ReleaseCheckResult.InvalidReleaseLinks
         }
         return ReleaseCheckResult.UpdateAvailable(
@@ -127,7 +127,7 @@ internal object GitHubReleaseParser {
             uri.fragment == null
     } == true
 
-    private fun isTrustedApk(value: String, tag: String): Boolean = trustedUri(value)?.let { uri ->
+    internal fun isTrustedApkUrl(value: String, tag: String): Boolean = trustedUri(value)?.let { uri ->
         uri.path == "/$owner/$repository/releases/download/$tag/$apkName" && uri.query == null && uri.fragment == null
     } == true
 
