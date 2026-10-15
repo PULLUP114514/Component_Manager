@@ -374,7 +374,12 @@ class InventoryInteractionUiTest {
     }
 
     @Test
-    fun componentEditorOffersCategoryAndLocationChoicesWhileKeepingManualEntry() {
+    fun componentEditorKeepsManualCategoryAndSelectsLocationByName() {
+        val repository = com.componentvault.android.data.InventoryRepository(context)
+        kotlinx.coroutines.runBlocking {
+            repository.saveStorageLocation("A", "Shelf A", com.componentvault.android.model.StorageLocationSaveIntent.Create)
+            repository.saveStorageLocation("B", "Shelf B", com.componentvault.android.model.StorageLocationSaveIntent.Create)
+        }
         var saved: ComponentDraft? = null
         val component = ComponentRecord(id = "part-editor", sku = "C-42", name = "Maker R42",
             category = "Resistor", packageName = "0603", location = "A", description = "",
@@ -390,14 +395,13 @@ class InventoryInteractionUiTest {
         compose.onNodeWithTag("component_editor_category_choices").performClick()
         compose.onNodeWithText("Widget").performClick()
         compose.onNodeWithTag("component_editor_fields")
-            .performScrollToNode(hasTestTag("component_editor_location_choices"))
-        compose.onNodeWithTag("component_editor_location_choices").performClick()
-        compose.onNodeWithText("Shelf B (B)").performClick()
-        compose.onNodeWithTag("component_editor_location").performTextReplacement("CUSTOM")
+            .performScrollToNode(hasText("Shelf A"))
+        compose.onNodeWithText("Shelf A").performClick()
+        compose.onNodeWithText("Shelf B").performClick()
         compose.onNodeWithText(context.getString(R.string.action_save)).performClick()
         compose.runOnIdle {
             assertEquals("Widget", saved?.category)
-            assertEquals("CUSTOM", saved?.location)
+            assertEquals("B", saved?.location)
         }
     }
     private val compactMode = InventoryLayoutMode(
