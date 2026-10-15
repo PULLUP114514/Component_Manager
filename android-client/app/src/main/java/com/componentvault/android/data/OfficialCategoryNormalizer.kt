@@ -12,6 +12,11 @@ internal object OfficialCategoryNormalizer {
     )
 
     private val knownEnglishSegments = mapOf(
+        "pc card sockets" to "存储卡连接器",
+        "usb, dvi, hdmi connector assemblies" to "USB/DVI/HDMI连接器",
+        "voltage regulators - dc dc switching regulators" to "DC-DC开关稳压器",
+        "single fets, mosfets" to "MOS管",
+        "audio amplifiers" to "音频放大器",
         "capacitors" to "电容器",
         "ceramic capacitors" to "陶瓷电容器",
         "aluminum electrolytic capacitors" to "铝电解电容器",

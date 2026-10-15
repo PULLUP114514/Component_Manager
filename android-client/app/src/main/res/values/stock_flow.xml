@@ -1,0 +1,8 @@
+<resources>
+    <string name="scan_stock_choose_action">Choose a stock operation</string>
+    <string name="scan_stock_mode_help">Choose once for this session. Scan a label, review quantity and location, then confirm. Scanning alone never changes stock.</string>
+    <string name="scan_stock_inbound">Scan stock in</string>
+    <string name="scan_stock_outbound">Scan stock out</string>
+    <string name="component_internal_sku_help">Leave blank to generate a unique internal SKU when saving.</string>
+    <string name="scan_stock_select_location">Select a valid storage location.</string><string name="scan_stock_location_insufficient">Not enough stock in the selected location. Select another location or reduce the quantity.</string>
+</resources>

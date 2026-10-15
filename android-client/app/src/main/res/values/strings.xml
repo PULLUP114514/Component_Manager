@@ -1,5 +1,9 @@
 <resources>
     <string name="app_name">元件仓库</string>
+    <string name="importer_create_location">Create storage location</string>
+    <string name="importer_select_location">Select an existing location</string>
+    <string name="importer_location_name">Location name</string>
+    <string name="importer_location_duplicate">A location with this name already exists. Select it from the list.</string>
     <string name="top_bar_title">元件仓库</string>
 
     <string name="destination_inventory">Inventory</string>

@@ -118,6 +118,7 @@ dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
     implementation("com.google.zxing:core:3.5.3")
+    implementation("net.sourceforge.jexcelapi:jxl:2.6.12")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material3:material3-adaptive-navigation-suite")
     implementation("androidx.compose.material3.adaptive:adaptive:1.2.0")

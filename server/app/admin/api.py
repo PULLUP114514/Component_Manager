@@ -22,6 +22,8 @@ from ..part_lookup import (
 from ..schemas import (
     AdminComponentDetail,
     AdminComponentCreate,
+    AdminComponentDelete,
+    AdminComponentDeleteResult,
     AdminComponentUpdate,
     AdminComponentListResponse,
     AdminDashboardResponse,
@@ -48,6 +50,7 @@ from .operations import (
     AdminOperationNotFound,
     create_component,
     create_storage_location,
+    delete_component,
     list_storage_locations,
     record_stock_movement,
     update_component,
@@ -376,6 +379,26 @@ def put_component(
     return _run_admin_operation(
         AdminComponentDetail,
         lambda: update_component(connection, _account_settings(settings, account), component_id, draft),
+    )
+
+
+@router.delete(
+    "/components/{component_id}",
+    response_model=AdminComponentDeleteResult,
+)
+def delete_component_route(
+    component_id: str,
+    draft: AdminComponentDelete,
+    settings: Settings = Depends(get_settings),
+    connection: sqlite3.Connection = Depends(get_db),
+    account: Account = Depends(require_token),
+) -> AdminComponentDeleteResult:
+    _require_web_inventory(settings)
+    return _run_admin_operation(
+        AdminComponentDeleteResult,
+        lambda: delete_component(
+            connection, _account_settings(settings, account), component_id, draft
+        ),
     )
 
 

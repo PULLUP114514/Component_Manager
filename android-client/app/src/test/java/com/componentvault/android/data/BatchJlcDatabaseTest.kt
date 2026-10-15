@@ -129,6 +129,15 @@ class BatchJlcDatabaseTest {
         }
     }
 
+    @Test
+    fun orderReceiptsPreventInboundAcrossDifferentImportSessions() = runBlocking {
+        val order = row("order", "C70565", "5", "B").copy(id = "order-synthetic-order-sku")
+        assertTrue(repository.commitBatchJlc("first-import", listOf(order)).isSuccess)
+        assertTrue(order.id in repository.loadBatchJlcReceipts("another-import"))
+        assertTrue(repository.commitBatchJlc("another-import", listOf(order)).isSuccess)
+        assertEquals(15, number("SELECT quantity FROM components WHERE sku='C70565'"))
+        assertEquals(1, number("SELECT COUNT(*) FROM stock_movements"))
+    }
     private fun row(id: String, sku: String, quantity: String, location: String) = BatchJlcRow(
         id = java.util.UUID.nameUUIDFromBytes(id.toByteArray()).toString(),
         raw = "{pc:$sku,qty:$quantity,pdi:sample-$id}", status = BatchJlcStatus.Ready,

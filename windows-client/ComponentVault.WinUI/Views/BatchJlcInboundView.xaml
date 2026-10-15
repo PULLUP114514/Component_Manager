@@ -61,7 +61,8 @@
                         <Grid ColumnSpacing="8" RowSpacing="8">
                             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="Auto"/><ColumnDefinition x:Name="ReadyActionColumn3" Width="Auto"/></Grid.ColumnDefinitions>
-                            <ComboBox x:Name="DefaultLocationBox" DisplayMemberPath="Id" PlaceholderText="统一默认库位"/>
+                            <ComboBox x:Name="DefaultLocationBox" DisplayMemberPath="Name" PlaceholderText="选择已有库位"/>
+                            <Button x:Name="CreateLocationButton" Grid.Row="1" Click="OnCreateLocation" Content="新建库位"/>
                             <Button x:Name="ApplyLocationButton" Grid.Column="1" Click="OnApplyDefaultLocation" Content="应用统一库位"/>
                             <Button x:Name="SubmitButton" Grid.Column="2" Click="OnSubmit" Content="确认所选入库" Style="{StaticResource AccentButtonStyle}"/>
                         </Grid>
@@ -96,7 +97,7 @@
                                                 <ColumnDefinition x:Name="ReadyFieldColumn4"/>
                                             </Grid.ColumnDefinitions>
                                             <NumberBox Header="数量" Value="{x:Bind QuantityInput,Mode=TwoWay}" Minimum="1" LostFocus="OnDraftFieldLostFocus"/>
-                                            <ComboBox Grid.Column="1" Header="库位" ItemsSource="{x:Bind LocationIds}" SelectedItem="{x:Bind LocationId,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
+                                            <ComboBox Grid.Column="1" Header="库位" ItemsSource="{x:Bind LocationOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{x:Bind LocationId,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
                                             <TextBox x:Name="ReadyName" Grid.Column="2" Header="名称" Text="{x:Bind Name,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
                                             <TextBox x:Name="ReadyPackage" Grid.Column="3" Header="封装" Text="{x:Bind PackageName,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
                                         </Grid>
@@ -142,7 +143,7 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBox Header="C 编号" Text="{x:Bind Sku,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
                                             <NumberBox x:Name="PendingQuantity" Grid.Column="1" Header="数量" Value="{x:Bind QuantityInput,Mode=TwoWay}" Minimum="1" LostFocus="OnDraftFieldLostFocus"/>
-                                            <ComboBox x:Name="PendingLocation" Grid.Column="2" Header="库位" ItemsSource="{x:Bind LocationIds}" SelectedItem="{x:Bind LocationId,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
+                                            <ComboBox x:Name="PendingLocation" Grid.Column="2" Header="库位" ItemsSource="{x:Bind LocationOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{x:Bind LocationId,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
                                         </Grid>
                                         <Grid ColumnSpacing="6">
                                             <Grid.ColumnDefinitions>

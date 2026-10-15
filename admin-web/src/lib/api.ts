@@ -120,8 +120,8 @@ async function mutateJson<T>(session: AdminSession, path: string, method: "POST"
   return (await response.json()) as T;
 }
 
-export async function deleteJson<T>(session: AdminSession, path: string): Promise<T> {
-  return mutateJson<T>(session, path, "DELETE", undefined);
+export async function deleteJson<T>(session: AdminSession, path: string, body?: unknown): Promise<T> {
+  return mutateJson<T>(session, path, "DELETE", body);
 }
 export interface SessionResponse {
   identity: AccountIdentity;

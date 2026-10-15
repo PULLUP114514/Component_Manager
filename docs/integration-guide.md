@@ -570,3 +570,7 @@ Android 和 Windows 将官方参数保存在既有元件 `description` 的参数
 - `GET /admin-api/about` reports author, build version/revision and container/source-or-service detection. `POST /admin-api/about/check-update` checks the latest stable GitHub release. `update_available:null` means source/unknown version cannot be compared; failure is 502 rather than a false “up to date”. No self-update endpoint is provided.
 
 All device/audit/conflict APIs use the authenticated account inventory database. Old activity is not reconstructed. About/update checks require authentication but do not change deployment.
+
+## 删除 Web 库存元件（0.7.8-dev.7）
+
+`DELETE /admin-api/components/{component_id}`，请求 JSON：`{"request_id":"唯一操作ID","expected_updated_at":"详情返回的更新时间"}`。需要有效账户认证，并启用 Web 库存写入；Cookie 会话仍需 CSRF 头。返回 `{id, deleted, updated_at}`。相同请求 ID 与载荷可安全重试，版本过期返回冲突，重新读取后再确认。服务端保存删除墓碑并同步给客户端，保留流水；不会访问其他账户的库存。

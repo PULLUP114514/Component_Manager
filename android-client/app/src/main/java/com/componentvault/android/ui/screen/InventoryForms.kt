@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.componentvault.android.model.LocalComponentSku
 import com.componentvault.android.model.ComponentDraft
 import com.componentvault.android.model.ComponentRecord
 import com.componentvault.android.model.MovementEntryDraft
@@ -70,6 +71,9 @@ internal fun ComponentEditorSurface(
     var description by remember(stateKey) {
         mutableStateOf(existing?.description ?: initialDraft?.description.orEmpty())
     }
+    var photoCommitted by remember(stateKey) { mutableStateOf(false) }
+    val photoOpeningDescription = remember(stateKey) { description }
+    val photoSession = rememberComponentPhotoSession(photoOpeningDescription, description) { photoCommitted }
     var quantityText by remember(stateKey) {
         mutableStateOf((existing?.quantity ?: initialDraft?.quantity ?: 0).toString())
     }
@@ -94,6 +98,7 @@ internal fun ComponentEditorSurface(
             strings.common.actionSaveAndGenerateLabel
         },
         onSave = {
+            sku = LocalComponentSku.ensure(sku)
             validateComponentDraft(
                 strings = strings,
                 existingId = existing?.id,
@@ -109,6 +114,7 @@ internal fun ComponentEditorSurface(
             )?.let { draft ->
                 errorMessage = null
                 onSave(draft) { result ->
+                    if (result.isSuccess) { photoCommitted = true; photoSession.finish(description, true) }
                     if (!result.isSuccess) {
                         errorMessage = result.message
                     }
@@ -116,6 +122,7 @@ internal fun ComponentEditorSurface(
             }
         },
         onSecondarySave = {
+            sku = LocalComponentSku.ensure(sku)
             validateComponentDraft(
                 strings = strings,
                 existingId = existing?.id,
@@ -131,6 +138,7 @@ internal fun ComponentEditorSurface(
             )?.let { draft ->
                 errorMessage = null
                 onSaveAndGenerateLabel?.invoke(draft) { result ->
+                    if (result.isSuccess) { photoCommitted = true; photoSession.finish(description, true) }
                     if (!result.isSuccess) {
                         errorMessage = result.message
                     }
@@ -148,6 +156,7 @@ internal fun ComponentEditorSurface(
                     onValueChange = { sku = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(strings.common.fieldSku) },
+                    supportingText = { Text(androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.component_internal_sku_help)) },
                     singleLine = true,
                 )
                 OutlinedTextField(
@@ -195,14 +204,12 @@ internal fun ComponentEditorSurface(
         }
         item {
             SectionPane(title = strings.forms.componentStorageTitle) {
-                EditableChoiceField(
+                ImportLocationPicker(
                     value = location,
                     onValueChange = { location = it },
-                    label = strings.common.fieldLocation,
-                    options = storageLocations.filterNot(StorageLocationRecord::deleted).map { it.id }.distinct(),
-                    optionLabel = { id -> storageLocations.firstOrNull { it.id == id }?.let { "${it.name} (${it.id})" } ?: id },
-                    tag = "component_editor_location",
+                    storageLocations = storageLocations,
                 )
+                ComponentPhotoEditor(description, { description = it }, session = photoSession)
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
@@ -236,7 +243,7 @@ private fun EditableChoiceField(
     var expanded by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth()) {
         OutlinedTextField(
-            value = value,
+            value = if (value in options) optionLabel(value) else value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth().testTag(tag),
             label = { Text(label) },

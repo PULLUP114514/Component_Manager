@@ -78,6 +78,7 @@ fun ComponentVaultApp(
     var componentEditorTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     var movementEditorVisible by rememberSaveable { mutableStateOf(false) }
     var movementBatchReviewVisible by rememberSaveable { mutableStateOf(false) }
+    var movementScanModeVisible by rememberSaveable { mutableStateOf(false) }
     var lastObservedBatchScans by rememberSaveable {
         mutableIntStateOf(uiState.movements.batchSession.totalScans)
     }
@@ -250,6 +251,15 @@ fun ComponentVaultApp(
         }
     }
 
+    if (movementScanModeVisible) {
+        MovementScanModeDialog(
+            onDismiss = { movementScanModeVisible = false },
+            onSelect = { action ->
+                movementScanModeVisible = false
+                viewModel.startMovementScan(action)
+            },
+        )
+    }
     BackHandler(enabled = componentEditorVisible && !layoutMode.prefersDialogForms) {
         closeComponentEditor()
     }
@@ -327,6 +337,7 @@ fun ComponentVaultApp(
                     onUpdateMovementBatchItemQuantity = viewModel::updateMovementBatchItemQuantity,
                     onUpdateMovementBatchItemReason = viewModel::updateMovementBatchItemReason,
                     onUpdateMovementBatchItemNote = viewModel::updateMovementBatchItemNote,
+                    onUpdateMovementBatchItemLocation = viewModel::updateMovementBatchItemLocation,
                     onRemoveMovementBatchItem = viewModel::removeMovementBatchItem,
                 )
             }
@@ -381,6 +392,7 @@ fun ComponentVaultApp(
                     layoutMode = layoutMode,
                     syncConfiguration = uiState.syncConfiguration,
                     appPreferences = uiState.appPreferences,
+                    storageLocations = uiState.inventory.storageLocations,
                     onDismiss = ::closeImportSurface,
                     onSaveImportedComponent = { draft, sourceCandidate, onComplete ->
                         submitImportedDraft(
@@ -531,7 +543,8 @@ fun ComponentVaultApp(
                     onScanMovementLabel = {
                         destination = InventoryDestination.Movements
                         movementBatchReviewVisible = false
-                        viewModel.openMovementScanner()
+                        if (uiState.movements.batchSession.isActive) viewModel.openMovementScanner()
+                        else movementScanModeVisible = true
                     },
                     onRetryMovementScan = viewModel::openMovementScanner,
                     onDismissMovementScanResult = viewModel::clearMovementScanState,
@@ -663,6 +676,7 @@ fun ComponentVaultApp(
                     layoutMode = layoutMode,
                     syncConfiguration = uiState.syncConfiguration,
                     appPreferences = uiState.appPreferences,
+                    storageLocations = uiState.inventory.storageLocations,
                     onDismiss = ::closeImportSurface,
                     onSaveImportedComponent = { draft, sourceCandidate, onComplete ->
                         submitImportedDraft(

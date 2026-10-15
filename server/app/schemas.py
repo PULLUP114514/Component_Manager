@@ -288,6 +288,27 @@ class AdminComponentUpdate(BaseModel):
         return normalized
 
 
+class AdminComponentDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(min_length=8, max_length=120)
+    expected_updated_at: datetime
+
+    @field_validator("request_id")
+    @classmethod
+    def normalize_request_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Value must not be blank.")
+        return normalized
+
+
+class AdminComponentDeleteResult(BaseModel):
+    id: str
+    updated_at: datetime
+    deleted: bool
+
+
 class AdminStockMovementCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

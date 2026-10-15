@@ -67,7 +67,7 @@ class MovementLabelResolutionTest {
         }
         assertNull(model.startupFailure)
         compose.runOnIdle {
-            model.openMovementScanner()
+            model.startMovementScan(MovementQuickAction.Outbound)
             model.resolveMovementComponentFromLabel(packageQr)
         }
         compose.waitUntil(10_000) {
@@ -82,6 +82,8 @@ class MovementLabelResolutionTest {
             val queued = movements.batchSession.queuedItems.single()
             assertEquals("C30926", queued.componentSku)
             assertEquals("1", queued.quantityText)
+            assertEquals(MovementQuickAction.Outbound.movementType, queued.movementType)
+            assertTrue(queued.reason.isNotBlank())
             assertEquals(10, queued.currentStock)
             model.updateMovementBatchItemMovementType(queued.componentId, MovementQuickAction.Outbound.movementType)
             model.updateMovementBatchItemQuantity(queued.componentId, "2")

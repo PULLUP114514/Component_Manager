@@ -109,6 +109,68 @@ def test_empty_server_location_then_component_is_pull_visible(
         assert pulled["storage_locations"][0]["id"] == "A"
 
 
+def test_delete_component_keeps_sync_tombstone_and_movement_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    with _client(tmp_path, monkeypatch, True) as client:
+        assert _create_location(client).status_code == 201
+        component = _create_component(client).json()
+        moved = client.post(
+            f"/admin-api/components/{component['id']}/movements",
+            headers=HEADERS, json=_movement(component),
+        )
+        assert moved.status_code == 200, moved.text
+        current = moved.json()
+        path = f"/admin-api/components/{component['id']}"
+        payload = {
+            "request_id": "delete-request-001",
+            "expected_updated_at": current["updated_at"],
+        }
+        before = client.get("/sync/pull", headers=HEADERS).json()["sync_cursor"]
+        deleted = client.request("DELETE", path, headers=HEADERS, json=payload)
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["deleted"] is True
+        assert client.get(path, headers=HEADERS).status_code == 404
+        assert client.get("/admin-api/components", headers=HEADERS).json()["total"] == 0
+        pulled = client.get(
+            f"/sync/pull?cursor={before}", headers=HEADERS
+        ).json()
+        assert len(pulled["components"]) == 1
+        assert pulled["components"][0]["deleted"] is True
+        assert pulled["components"][0]["quantity"] == 5
+        assert pulled["components"][0]["allocations"] == current["allocations"]
+        assert client.get("/sync/pull", headers=HEADERS).json()["stock_movements"]
+
+        replay = client.request("DELETE", path, headers=HEADERS, json=payload)
+        assert replay.status_code == 200
+        assert replay.json() == deleted.json()
+        assert client.get("/sync/pull", headers=HEADERS).json()["sync_cursor"] == pulled["sync_cursor"]
+        assert client.request("DELETE", path, headers=HEADERS, json={
+            **payload, "request_id": "delete-request-002",
+        }).status_code == 404
+
+
+def test_delete_requires_enabled_writes_and_current_version(
+    tmp_path: Path, monkeypatch
+) -> None:
+    with _client(tmp_path, monkeypatch, True) as client:
+        _create_location(client)
+        component = _create_component(client).json()
+        path = f"/admin-api/components/{component['id']}"
+        payload = {
+            "request_id": "delete-request-001",
+            "expected_updated_at": component["updated_at"],
+        }
+        moved = client.post(path + "/movements", headers=HEADERS, json=_movement(component))
+        assert moved.status_code == 200
+        assert client.request("DELETE", path, headers=HEADERS, json=payload).status_code == 409
+        assert client.request("DELETE", path, json=payload).status_code == 401
+        assert client.get(path, headers=HEADERS).status_code == 200
+    with _client(tmp_path, monkeypatch, False) as client:
+        assert client.request("DELETE", path, headers=HEADERS, json=payload).status_code == 403
+        assert client.get(path, headers=HEADERS).status_code == 200
+
+
 def test_long_location_name_uses_short_code_for_component_compatibility(
     tmp_path: Path, monkeypatch
 ) -> None:

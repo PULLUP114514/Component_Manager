@@ -64,6 +64,7 @@ data class InventoryListItemUiState(
     val isLowStock: Boolean,
     val updatedAt: String,
     val productImageUrl: String? = null,
+    val description: String = "",
     val specificationSummary: String? = null,
     val issuedQuantity: Long = 0,
 )

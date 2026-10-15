@@ -654,6 +654,7 @@ internal fun InventoryDetailPane(
                 ProductThumbnail(
                     sku = component.sku,
                     imageUrl = component.productImageUrl,
+                    description = component.description,
                     imageSize = 112.dp,
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                 )

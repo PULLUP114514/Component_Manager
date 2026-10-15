@@ -40,6 +40,8 @@ data class MovementBatchQueueItemUiState(
     val location: String,
     val currentStock: Int,
     val minStock: Int,
+    val locationQuantities: Map<String, Int> = emptyMap(),
+    val locationNames: Map<String, String> = emptyMap(),
     val scanCount: Int = 1,
     val movementType: String = MovementQuickAction.Inbound.movementType,
     val quantityText: String = "1",
@@ -50,6 +52,7 @@ data class MovementBatchQueueItemUiState(
 )
 
 data class MovementBatchSessionUiState(
+    val defaultMovementType: String = MovementQuickAction.Inbound.movementType,
     val stage: MovementBatchStage = MovementBatchStage.Review,
     val queuedItems: List<MovementBatchQueueItemUiState> = emptyList(),
     val totalScans: Int = 0,

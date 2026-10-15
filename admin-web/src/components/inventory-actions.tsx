@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
-import { ApiError, postJson, putJson } from "@/lib/api";
+import { ApiError, deleteJson, postJson, putJson } from "@/lib/api";
 import {
   clearPendingRequest, loadPendingRequest, pendingStorageKey, requestForPayload, savePendingRequest, shouldRetainPending,
 } from "@/lib/pending-request";
@@ -20,6 +20,7 @@ interface InventoryActionsProps {
   component: AdminComponentDetail | null;
   locations: AdminStorageLocation[];
   onChanged: (component?: AdminComponentDetail) => void;
+  onDeleted?: () => void;
   onLocationsChanged: () => void;
 }
 
@@ -27,7 +28,7 @@ const emptyComponent = {
   sku: "", name: "", category: "", package_name: "", description: "", min_stock: 0, location_id: "",
 };
 
-export function InventoryActions({ scope, enabled, component, locations, onChanged, onLocationsChanged }: InventoryActionsProps) {
+export function InventoryActions({ scope, enabled, component, locations, onChanged, onDeleted, onLocationsChanged }: InventoryActionsProps) {
   const { t, locale } = useI18n();
   const { identity, logout, session } = useAuth();
   const navigate = useNavigate();
@@ -42,7 +43,7 @@ export function InventoryActions({ scope, enabled, component, locations, onChang
   const memoryPending = useRef(new Map<string, NonNullable<ReturnType<typeof loadPendingRequest>>>());
   const previousComponentId = useRef<string | null>(null);
   const [createPanel, setCreatePanel] = useState<"location" | "component" | null>(null);
-  const [componentPanel, setComponentPanel] = useState<"edit" | "movement" | null>(null);
+  const [componentPanel, setComponentPanel] = useState<"edit" | "movement" | "delete" | null>(null);
   const locationCodeId = useId();
   const locationNameId = useId();
   const movementTypeId = useId();
@@ -147,6 +148,17 @@ export function InventoryActions({ scope, enabled, component, locations, onChang
     });
   }
 
+  function removeComponent() {
+    if (!component) return;
+    const payload = { expected_updated_at: component.updated_at };
+    void submit<{ id: string; deleted: boolean }>(
+      `delete:${component.id}`,
+      payload,
+      (body) => deleteJson(session!, `/admin-api/components/${encodeURIComponent(component.id)}`, body),
+      () => onDeleted?.(),
+    );
+  }
+
   function applyMovement(event: FormEvent) {
     event.preventDefault();
     if (!component) return;
@@ -223,7 +235,9 @@ export function InventoryActions({ scope, enabled, component, locations, onChang
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant={componentPanel === "edit" ? "default" : "outline"} onClick={() => setComponentPanel(componentPanel === "edit" ? null : "edit")}>{componentPanel === "edit" ? t("收起编辑") : t("编辑资料")}</Button>
         <Button type="button" variant={componentPanel === "movement" ? "default" : "outline"} onClick={() => setComponentPanel(componentPanel === "movement" ? null : "movement")}>{componentPanel === "movement" ? t("收起入出库") : t("办理入出库")}</Button>
+        <Button type="button" variant={componentPanel === "delete" ? "destructive" : "outline"} onClick={() => setComponentPanel(componentPanel === "delete" ? null : "delete")}>{t("删除元器件")}</Button>
       </div>
+      {componentPanel === "delete" ? <Card className="border-red-200 bg-red-50/70"><CardHeader><CardTitle>{t("删除元器件")} {component.sku}</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm">{t("删除后，此元件将从当前账户的库存列表中移除，并同步到客户端。历史流水仍会保留。")}</p><div className="flex flex-wrap gap-2"><Button type="button" variant="destructive" disabled={busy !== null} onClick={removeComponent}>{busy === `delete:${component.id}` ? t("正在删除…") : t("确认删除")}</Button><Button type="button" variant="outline" disabled={busy !== null} onClick={() => setComponentPanel(null)}>{t("取消")}</Button></div></CardContent></Card> : null}
       {componentPanel === "edit" ? <Card className="bg-slate-50/70"><CardHeader className="flex flex-row items-center justify-between gap-3"><CardTitle>{t("编辑")} {component.sku}</CardTitle><Button type="button" size="sm" variant="ghost" onClick={() => setComponentPanel(null)}>{t("取消")}</Button></CardHeader><CardContent>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={updateComponent}>
             <TextField label={t("料号")} required value={editDraft.sku} onChange={(value) => setEditDraft({ ...editDraft, sku: value })} />

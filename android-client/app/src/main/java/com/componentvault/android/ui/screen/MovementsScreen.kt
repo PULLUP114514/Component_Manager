@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -279,6 +280,7 @@ internal fun MovementBatchReviewRoute(
     onUpdateMovementBatchItemReason: (String, String) -> Unit,
     onUpdateMovementBatchItemNote: (String, String) -> Unit,
     onRemoveMovementBatchItem: (String) -> Unit,
+    onUpdateMovementBatchItemLocation: (String, String) -> Unit = { _, _ -> },
 ) {
     val strings = vaultStrings()
     BackHandler(onBack = onDismiss)
@@ -313,6 +315,7 @@ internal fun MovementBatchReviewRoute(
                     onQuantityChange = { onUpdateMovementBatchItemQuantity(item.componentId, it) },
                     onReasonChange = { onUpdateMovementBatchItemReason(item.componentId, it) },
                     onNoteChange = { onUpdateMovementBatchItemNote(item.componentId, it) },
+                    onLocationChange = { onUpdateMovementBatchItemLocation(item.componentId, it) },
                     onRemove = { onRemoveMovementBatchItem(item.componentId) },
                 )
             }
@@ -631,6 +634,7 @@ private fun MovementBatchQueueItemCard(
     onQuantityChange: (String) -> Unit,
     onReasonChange: (String) -> Unit,
     onNoteChange: (String) -> Unit,
+    onLocationChange: (String) -> Unit,
     onRemove: () -> Unit,
 ) {
     val strings = vaultStrings()
@@ -648,7 +652,24 @@ private fun MovementBatchQueueItemCard(
         )
         ValueBlock(label = strings.common.fieldCategory, value = localizedCategoryLabel(item.category))
         ValueBlock(label = strings.common.fieldPackage, value = item.packageName)
-        ValueBlock(label = strings.common.fieldLocation, value = item.location)
+        var locationMenuExpanded by rememberSaveable { mutableStateOf(false) }
+        androidx.compose.foundation.layout.Box {
+            OutlinedButton(onClick = { locationMenuExpanded = true }) {
+                Text("${strings.common.fieldLocation}: ${item.locationNames[item.location] ?: item.location} (${item.locationQuantities[item.location] ?: 0})")
+            }
+            androidx.compose.material3.DropdownMenu(
+                expanded = locationMenuExpanded,
+                onDismissRequest = { locationMenuExpanded = false },
+                modifier = Modifier.heightIn(max = 280.dp),
+            ) {
+                item.locationQuantities.forEach { (location, quantity) ->
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text("${item.locationNames[location] ?: location} ($quantity)") },
+                        onClick = { onLocationChange(location); locationMenuExpanded = false },
+                    )
+                }
+            }
+        }
         ValueBlock(label = strings.movements.currentStockLabel, value = item.currentStock.toString())
         ValueBlock(label = strings.movements.minimumStockLabel, value = item.minStock.toString())
         projectedQuantity?.let { quantity ->
@@ -665,7 +686,7 @@ private fun MovementBatchQueueItemCard(
             label = strings.common.fieldQuantity,
             minimum = if (item.movementType == MovementQuickAction.Adjustment.movementType) Int.MIN_VALUE else 1,
             maximum = if (item.movementType == MovementQuickAction.Outbound.movementType)
-                item.currentStock.coerceAtLeast(0) else Int.MAX_VALUE,
+                (item.locationQuantities[item.location] ?: 0).coerceAtLeast(0) else Int.MAX_VALUE,
             skipZero = item.movementType == MovementQuickAction.Adjustment.movementType,
         )
         OutlinedTextField(

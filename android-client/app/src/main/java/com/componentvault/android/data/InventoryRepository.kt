@@ -34,6 +34,7 @@ import com.componentvault.android.model.ComponentAllocationRecord
 import com.componentvault.android.model.SyncConfiguration
 import com.componentvault.android.model.isJlcSource
 import com.componentvault.android.model.parseImportDescription
+import com.componentvault.android.model.officialParameters
 import com.componentvault.android.model.withRecognitionMetadata
 import com.componentvault.android.model.withLearningMapping
 import com.componentvault.android.model.withOfficialMetadata
@@ -429,6 +430,10 @@ class InventoryRepository(
             publicLookupResult
         }
 
+        if (appPreferences.enableLocalImportLearning) {
+            enrichedCandidate = CategoryLearningStore(appContext).apply(enrichedCandidate)
+        }
+
         ComponentImportResolution(
             candidate = enrichedCandidate,
             learningMatch = learningMatch,
@@ -633,6 +638,7 @@ class InventoryRepository(
         databaseHelper.writableDatabase.use { db ->
             db.delete("import_learning_mappings", null, null)
         }
+        CategoryLearningStore(appContext).clear()
         OperationResult(
             isSuccess = true,
             message = text(R.string.settings_local_learning_cleared),
@@ -701,6 +707,12 @@ class InventoryRepository(
                 } finally {
                     db.endTransaction()
                 }
+            }
+
+            if (appPreferences.enableLocalImportLearning && sourceCandidate != null &&
+                draft.category.trim() != sourceCandidate.category.trim()
+            ) {
+                CategoryLearningStore(appContext).learn(sourceCandidate, draft.category)
             }
 
             OperationResult(
@@ -896,7 +908,7 @@ class InventoryRepository(
     }
 
     internal suspend fun loadBatchJlcReceipts(sessionId:String):Set<String> = withContext(Dispatchers.IO){
-        databaseHelper.readableDatabase.use{db->db.rawQuery("SELECT row_id FROM batch_jlc_receipts WHERE session_id = ?",arrayOf(sessionId)).use{c->buildSet{while(c.moveToNext())add(c.getString(0))}}}
+        databaseHelper.readableDatabase.use{db->db.rawQuery("SELECT row_id FROM batch_jlc_receipts WHERE session_id = ? OR row_id LIKE 'order-%'",arrayOf(sessionId)).use{c->buildSet{while(c.moveToNext())add(c.getString(0))}}}
     }
 
     internal suspend fun commitBatchJlc(sessionId:String,rows:List<BatchJlcRow>):OperationResult=withContext(Dispatchers.IO){
@@ -905,7 +917,7 @@ class InventoryRepository(
             var committedCount = 0
             var skippedCount = 0
             databaseHelper.writableDatabase.use{db->db.beginTransaction();try{
-                val already=db.rawQuery("SELECT row_id FROM batch_jlc_receipts WHERE session_id = ?",arrayOf(sessionId)).use{c->buildSet{while(c.moveToNext())add(c.getString(0))}}
+                val already=db.rawQuery("SELECT row_id FROM batch_jlc_receipts WHERE session_id = ? OR row_id LIKE 'order-%'",arrayOf(sessionId)).use{c->buildSet{while(c.moveToNext())add(c.getString(0))}}
                 skippedCount = rows.count { it.selected && it.status == BatchJlcStatus.Ready && it.id in already }
                 val parsed=BatchJlcCommitPlanner.plan(rows,already);val now=utcNow()
                 parsed.forEach{item->val row=item.row;val sku=item.sku;val quantity=item.quantity
@@ -915,11 +927,11 @@ class InventoryRepository(
                     if(component==null){require(row.name.isNotBlank()&&row.category.isNotBlank()&&row.packageName.isNotBlank()){"新料号 $sku 缺少名称、分类或封装。"};db.insertOrThrow("components",null,ContentValues().apply{put("id",componentId);put("sku",sku);put("name",row.name.trim());put("category",row.category.trim());put("package_name",row.packageName.trim());put("location",row.location.trim());put("description",row.description.trim());put("quantity",0);put("min_stock",0);put("updated_at",now);putNull("base_updated_at")});setAllocationQuantity(db,componentId,row.location.trim(),0)}
                     val oldAllocation=allocationQuantity(db,componentId,row.location.trim());val newTotal=Math.addExact(oldTotal,quantity);val newAllocation=Math.addExact(oldAllocation,quantity)
                     db.update("components",ContentValues().apply{put("quantity",newTotal);put("location",row.location.trim());put("updated_at",now)},"id=?",arrayOf(componentId));setAllocationQuantity(db,componentId,row.location.trim(),newAllocation);verifyAllocationTotal(db,componentId,newTotal)
-                    val movementId="mov-"+randomId();db.insertOrThrow("stock_movements",null,ContentValues().apply{put("id",movementId);put("component_id",componentId);put("movement_type","inbound");put("quantity",quantity);put("reason","JLC batch inbound");put("note","");put("happened_at",now);put("updated_at",now);put("deleted",0);put("location_id",row.location.trim())})
+                    val movementId="mov-"+randomId();db.insertOrThrow("stock_movements",null,ContentValues().apply{put("id",movementId);put("component_id",componentId);put("movement_type","inbound");put("quantity",quantity);put("reason",if(row.id.startsWith("order-")) "LCSC order statement inbound" else "JLC batch inbound");put("note","");put("happened_at",now);put("updated_at",now);put("deleted",0);put("location_id",row.location.trim())})
                     enqueueEntity(db,"component",componentId,now);enqueueEntity(db,"stock_movement",movementId,now);db.insertOrThrow("batch_jlc_receipts",null,ContentValues().apply{put("row_id",row.id);put("session_id",sessionId);put("component_id",componentId);put("movement_id",movementId);put("committed_at",now)})
                 };committedCount = parsed.size;db.setTransactionSuccessful()
             }finally{db.endTransaction()}}
-            OperationResult(true,"已批量入库 $committedCount 个包装；跳过已提交 $skippedCount 个。")
+            OperationResult(true,"已批量入库 $committedCount 条明细；跳过已提交 $skippedCount 条。")
         }.getOrElse{OperationResult(false,it.message?:"批量入库失败。")}
     }
 
@@ -1303,6 +1315,8 @@ class InventoryRepository(
                 packageName = component.packageName,
                 displayName = component.name,
                 active = !component.deleted,
+                category = component.category,
+                parameters = component.officialParameters(),
             )
         }
         val matches = com.componentvault.android.data.bom.BomInventoryMatcher.match(
@@ -1312,6 +1326,9 @@ class InventoryRepository(
         val componentsById = components.associateBy { it.id }
         val rawLines = matches.map { match ->
             val requirementKey = match.requirement.identity.canonicalKey
+            val alternatives = if (match.kind == com.componentvault.android.data.bom.BomMatchKind.NONE) {
+                com.componentvault.android.data.bom.BomElectricalAlternativeMatcher.suggest(match.requirement, inventory)
+            } else null
             val selectedId = selections[requirementKey]
                 ?: match.selectedInventoryId
             val component = selectedId?.let(componentsById::get)
@@ -1329,8 +1346,9 @@ class InventoryRepository(
                 componentSku = component?.sku,
                 availableQuantity = component?.quantity ?: 0,
                 expectedUpdatedAt = component?.updatedAt,
-                candidates = (match.candidates + searchedCandidates + listOfNotNull(selectedCandidate))
+                candidates = (match.candidates + alternatives?.candidates.orEmpty() + searchedCandidates + listOfNotNull(selectedCandidate))
                     .distinctBy { it.inventoryId },
+                candidateExplanation = alternatives?.explanation,
             )
         }
         val aggregated = com.componentvault.android.data.bom.BomReleaseAggregator.aggregate(rawLines)
@@ -1945,7 +1963,8 @@ class InventoryRepository(
         ensureUniqueActiveSku(db, draft.sku.trim(), draft.id)
         val updatedAt = utcNow()
         val componentId = draft.id ?: "cmp-${randomId()}"
-        val oldTotal = draft.id?.let { getComponentById(db, it)?.quantity } ?: 0
+        val existingComponent = draft.id?.let { getComponentById(db, it) }
+        val oldTotal = existingComponent?.quantity ?: 0
         val baseUpdatedAt = draft.id?.let { id ->
             db.rawQuery("SELECT base_updated_at FROM components WHERE id = ?", arrayOf(id)).use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
@@ -1974,19 +1993,20 @@ class InventoryRepository(
             SQLiteDatabase.CONFLICT_REPLACE,
         )
         val locationId = draft.location.trim()
-        val existingAtLocation = allocationQuantity(db, componentId, locationId)
-        val adjustedAtLocation = Math.addExact(existingAtLocation, draft.quantity - oldTotal)
-        check(adjustedAtLocation >= 0) { "The edited total would make the selected location negative." }
-        db.insertWithOnConflict(
-            "component_allocations",
-            null,
-            ContentValues().apply {
-                put("component_id", componentId)
-                put("location_id", locationId)
-                put("quantity", adjustedAtLocation)
-            },
-            SQLiteDatabase.CONFLICT_REPLACE,
-        )
+        if (existingComponent != null && existingComponent.location.trim() != locationId) {
+            db.update(
+                "component_allocations",
+                ContentValues().apply { put("quantity", 0) },
+                "component_id = ? AND location_id <> ?",
+                arrayOf(componentId, locationId),
+            )
+            setAllocationQuantity(db, componentId, locationId, draft.quantity)
+        } else {
+            val existingAtLocation = allocationQuantity(db, componentId, locationId)
+            val adjustedAtLocation = Math.addExact(existingAtLocation, draft.quantity - oldTotal)
+            check(adjustedAtLocation >= 0) { "The edited total would make the selected location negative." }
+            setAllocationQuantity(db, componentId, locationId, adjustedAtLocation)
+        }
         verifyAllocationTotal(db, componentId, draft.quantity)
         enqueueEntity(db, "component", componentId, updatedAt)
         return componentId

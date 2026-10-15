@@ -104,6 +104,8 @@ data class InventoryMatchCandidate(
     val packageName: String? = null,
     val displayName: String? = null,
     val active: Boolean = true,
+    val category: String? = null,
+    val parameters: Map<String, String> = emptyMap(),
 )
 
 enum class BomMatchKind {

@@ -792,3 +792,12 @@ CI 在原有回归组前单独运行 `MovementLabelResolutionTest`、`QuantitySt
 分别保存 `android-stock-scan-tests` 日志和测试报告。直接检查最多运行 10 分钟，
 原有回归组最多 15 分钟，避免再次静默等待到 GitHub 的 6 小时任务上限。
 直接检查成功、完整 CI 成功和实机验收分别报告，不互相替代。
+
+## 0.7.8-dev.7 库存修复与导入
+
+- Android / Windows 编辑元件时，主库位变更会在原有短事务中清零其他 allocations，并将 draft.quantity 写入目标 allocation；总量与各库位之和保持一致。显式部分转移语义不变，不新增 schema。
+- Android 库位选择只显示 name，内部持久化 id；选择与创建分开，创建生成内部码且拒绝重复名称。无供应商 SKU 的编辑草稿保存前生成 CV-UUID，不改变已有 SKU。
+- Android CategoryLearningStore 按官方完整分类路径保存用户修正，跨 SKU 复用；User/Learned 字段仍优先。清空学习记录同时清理该映射，不依品牌猜分类。
+- 立创订单 BIFF .xls 使用 JExcelAPI 解析，提取 C 料号、品牌、型号、商品分类、封装、订购数量。配送费/汇总不入库。订单号与 SKU 构成稳定 order- 回执键，复用 batch_jlc_receipts 跨本机导入会话去重；不传输原始订单表，不构建跨设备订单账本。
+- 手工照片复用 InventoryImageStore 的本地图片标记与 Excel 图片工作簿能力。父编辑器管理暂存图片生命周期，取消清理新图，成功保存保留引用；服务器同步 description 标记但不传图片二进制。
+- Web DELETE /admin-api/components/{id} 复用账户数据库、Web 写入开关、版本检查和请求回执，在事务内保存删除墓碑；下次同步传播删除，流水保留。

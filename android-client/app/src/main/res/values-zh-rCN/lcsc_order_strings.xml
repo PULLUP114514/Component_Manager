@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="lcsc_order_import_action">导入立创商城订单对账单（.xls）</string>
+    <string name="lcsc_order_import_result">新增 %1$d 条订单明细；跳过草稿中或已提交的 %2$d 条；合并同订单同料号 %3$d 行；排除配送费 %4$d 行。请核对数量和库位后入库。</string>
+    <string name="lcsc_order_import_failed">无法读取立创商城订单对账单。</string>
+    <string name="lcsc_order_commit_action">确认入库选中订单明细</string>
+    <string name="lcsc_order_review_title">核对订单明细</string>
+    <string name="lcsc_order_quantity">订购数量</string>
+</resources>

@@ -368,11 +368,20 @@ class InventoryViewModel(
         )
     }
 
+    fun startMovementScan(action: MovementQuickAction) {
+        if (!uiState.movements.batchSession.isActive) {
+            uiState = uiState.copy(movements = uiState.movements.copy(
+                batchSession = MovementBatchSessionUiState(defaultMovementType = action.movementType),
+            ))
+        }
+        openMovementScanner()
+    }
+
     fun openMovementScanner() {
         val nextBatchSession = uiState.movements.batchSession
             .takeIf { it.isActive }
             ?.copy(stage = MovementBatchStage.Scanning)
-            ?: MovementBatchSessionUiState(stage = MovementBatchStage.Scanning)
+            ?: uiState.movements.batchSession.copy(stage = MovementBatchStage.Scanning)
         uiState = uiState.copy(
             movements = buildMovementsUiState(
                 scanState = MovementScanUiState(
@@ -459,6 +468,13 @@ class InventoryViewModel(
                 reason = reason,
                 errorMessage = null,
             )
+        }
+    }
+
+    fun updateMovementBatchItemLocation(componentId: String, location: String) {
+        updateMovementBatchItem(componentId) { item ->
+            if (location in item.locationQuantities) item.copy(location = location, errorMessage = null)
+            else item
         }
     }
 
@@ -853,6 +869,7 @@ class InventoryViewModel(
             isLowStock = component.isLowStock,
             updatedAt = component.updatedAt,
             productImageUrl = component.productImageUrl,
+            description = component.description,
             specificationSummary = component.officialRclSpecificationSummary(),
             issuedQuantity = issuedQuantitiesCache[component.id] ?: 0,
         )
@@ -909,7 +926,13 @@ class InventoryViewModel(
     ): MovementBatchSessionUiState {
         val existingItem = session.queuedItems.firstOrNull { it.componentId == component.id }
         val queuedItems = if (existingItem == null) {
-            session.queuedItems + toMovementBatchQueueItem(component)
+            session.queuedItems + toMovementBatchQueueItem(component).copy(
+                movementType = session.defaultMovementType,
+                reason = getApplication<Application>().getString(
+                    if (session.defaultMovementType == MovementQuickAction.Outbound.movementType)
+                        R.string.scan_stock_outbound else R.string.scan_stock_inbound,
+                ),
+            )
         } else {
             session.queuedItems.map { item ->
                 if (item.componentId != component.id) {
@@ -921,7 +944,9 @@ class InventoryViewModel(
                         componentSku = component.sku,
                         category = component.category,
                         packageName = component.packageName,
-                        location = component.location,
+                        location = item.location.takeIf { it in movementLocationQuantities(component.id) } ?: component.location,
+                        locationQuantities = movementLocationQuantities(component.id),
+                        locationNames = storageLocationsCache.filterNot { it.deleted }.associate { it.id to it.name },
                         currentStock = component.quantity,
                         minStock = component.minStock,
                         scanCount = nextScanCount,
@@ -945,6 +970,11 @@ class InventoryViewModel(
         )
     }
 
+    private fun movementLocationQuantities(componentId: String): Map<String, Int> =
+        storageLocationsCache.filterNot { it.deleted }.associate { location ->
+            location.id to allocationsCache.filter { it.componentId == componentId && it.locationId == location.id }.sumOf { it.quantity }
+        }
+
     private fun toMovementBatchQueueItem(
         component: ComponentRecord,
     ): MovementBatchQueueItemUiState {
@@ -955,6 +985,8 @@ class InventoryViewModel(
             category = component.category,
             packageName = component.packageName,
             location = component.location,
+            locationQuantities = movementLocationQuantities(component.id),
+            locationNames = storageLocationsCache.filterNot { it.deleted }.associate { it.id to it.name },
             currentStock = component.quantity,
             minStock = component.minStock,
         )
@@ -981,7 +1013,9 @@ class InventoryViewModel(
                         componentSku = component.sku,
                         category = component.category,
                         packageName = component.packageName,
-                        location = component.location,
+                        location = item.location.takeIf { it in movementLocationQuantities(component.id) } ?: component.location,
+                        locationQuantities = movementLocationQuantities(component.id),
+                        locationNames = storageLocationsCache.filterNot { it.deleted }.associate { it.id to it.name },
                         currentStock = component.quantity,
                         minStock = component.minStock,
                     )
@@ -1011,6 +1045,11 @@ class InventoryViewModel(
             val errorMessage = when {
                 allComponentsCache.none { it.id == item.componentId } ->
                     application.getString(R.string.sync_choose_active_component_first)
+                item.location !in item.locationQuantities ->
+                    application.getString(R.string.scan_stock_select_location)
+                item.movementType == MovementQuickAction.Outbound.movementType && quantity != null &&
+                    quantity > (item.locationQuantities[item.location] ?: 0) ->
+                    application.getString(R.string.scan_stock_location_insufficient)
                 item.reason.isBlank() || item.movementType.isBlank() ->
                     application.getString(R.string.sync_choose_component_type_reason)
                 quantity == null ->
@@ -1035,6 +1074,7 @@ class InventoryViewModel(
                     quantity = quantity,
                     reason = item.reason,
                     note = item.note,
+                    locationId = item.location,
                 )
                 item.copy(errorMessage = null)
             } else {

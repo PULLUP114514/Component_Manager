@@ -11,6 +11,7 @@ from ..config import Settings
 from ..repositories import save_sync_payload_in_transaction
 from ..schemas import (
     AdminComponentCreate,
+    AdminComponentDelete,
     AdminComponentUpdate,
     AdminStockMovementCreate,
     AdminStorageLocationCreate,
@@ -205,6 +206,62 @@ def update_component(
         raise AdminOperationConflict(str(error)) from error
 
 
+def delete_component(
+    connection: sqlite3.Connection,
+    settings: Settings,
+    component_id: str,
+    draft: AdminComponentDelete,
+) -> dict[str, object]:
+    payload_json = _canonical_payload(draft)
+    try:
+        with connection:
+            connection.execute("BEGIN IMMEDIATE")
+            retry_target = _retry_target(
+                connection, draft.request_id, "delete_component", component_id, payload_json
+            )
+            if retry_target is not None:
+                return _deleted_component(connection, retry_target)
+            row = _component_row(connection, component_id)
+            _require_version(row, draft.expected_updated_at)
+            managed = bool(row["inventory_managed"])
+            now = _now_datetime_after(str(row["updated_at"]))
+            component = ComponentPayload(
+                id=component_id,
+                sku=str(row["sku"]),
+                name=str(row["name"]),
+                category=str(row["category"]),
+                package_name=str(row["package_name"]),
+                location=str(row["location"]),
+                description=row["description"],
+                quantity=int(row["quantity"]),
+                min_stock=int(row["min_stock"]),
+                updated_at=now,
+                deleted=True,
+                allocations=load_allocations(connection, component_id) if managed else None,
+                base_updated_at=draft.expected_updated_at if managed else None,
+            )
+            _save_payload(
+                connection,
+                settings,
+                PushRequest(
+                    device_id="admin-web",
+                    inventory_protocol=1 if managed else 0,
+                    components=[component],
+                ),
+            )
+            _save_receipt(
+                connection, draft.request_id, "delete_component", component_id,
+                payload_json, _storage_time(now),
+            )
+            return _deleted_component(connection, component_id)
+    except sqlite3.IntegrityError as error:
+        raise AdminOperationConflict("Component could not be deleted.") from error
+    except ValueError as error:
+        if isinstance(error, AdminOperationConflict):
+            raise
+        raise AdminOperationConflict(str(error)) from error
+
+
 def record_stock_movement(
     connection: sqlite3.Connection,
     settings: Settings,
@@ -382,6 +439,17 @@ def _component(
         item.model_dump() for item in load_allocations(connection, component_id)
     ]
     return result
+
+
+def _deleted_component(
+    connection: sqlite3.Connection, component_id: str
+) -> dict[str, object]:
+    row = connection.execute(
+        "SELECT id, updated_at, deleted FROM components WHERE id = ?", (component_id,)
+    ).fetchone()
+    if row is None or not row["deleted"]:
+        raise AdminOperationConflict("Component deletion is no longer current.")
+    return dict(row)
 
 
 def _location(connection: sqlite3.Connection, location_id: str) -> dict[str, object]:

@@ -399,9 +399,8 @@ public sealed class InventoryStore
 
         var componentId = draft.Id ?? $"cmp-{Guid.NewGuid():N}";
         var existingComponent = draft.Id is null ? null : GetComponentById(connection, componentId);
-        var preserveAllocations = existingComponent is not null
-            && existingComponent.Quantity == draft.Quantity
-            && string.Equals(existingComponent.Location, draft.Location.Trim(), StringComparison.Ordinal);
+        var locationChanged = existingComponent is not null
+            && !string.Equals(existingComponent.Location, draft.Location.Trim(), StringComparison.Ordinal);
         var updatedAt = UtcNow();
 
         using var command = connection.CreateCommand();
@@ -458,16 +457,22 @@ public sealed class InventoryStore
         command.Parameters.AddWithValue("$updated_at", updatedAt);
         command.ExecuteNonQuery();
 
-        if (!preserveAllocations)
+        var locationId = NormalizeLocationId(draft.Location);
+        if (existingComponent is null || locationChanged)
         {
-            var locationId = NormalizeLocationId(draft.Location);
             UpsertLocalLocation(connection, locationId, locationId, updatedAt);
             SetAllocationQuantity(connection, componentId, locationId, draft.Quantity);
             using var clearOtherAllocations = connection.CreateCommand();
-            clearOtherAllocations.CommandText = "DELETE FROM component_allocations WHERE component_id=$component_id AND location_id<>$location_id";
+            clearOtherAllocations.CommandText = "UPDATE component_allocations SET quantity=0 WHERE component_id=$component_id AND location_id<>$location_id";
             clearOtherAllocations.Parameters.AddWithValue("$component_id", componentId);
             clearOtherAllocations.Parameters.AddWithValue("$location_id", locationId);
             clearOtherAllocations.ExecuteNonQuery();
+        }
+        else if (existingComponent.Quantity != draft.Quantity)
+        {
+            var adjustedQuantity = (long)GetAllocationQuantity(connection, componentId, locationId) + draft.Quantity - existingComponent.Quantity;
+            if (adjustedQuantity < 0 || adjustedQuantity > int.MaxValue) throw new InvalidOperationException("The edited total would make the selected location invalid.");
+            SetAllocationQuantity(connection, componentId, locationId, (int)adjustedQuantity);
         }
 
         EnqueueEntity(connection, "component", componentId, updatedAt);

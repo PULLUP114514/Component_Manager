@@ -262,6 +262,10 @@ export function InventoryPage() {
                 void reload();
                 void detail.reload();
               }}
+              onDeleted={() => {
+                setSelectedId(null);
+                void reload();
+              }}
             />
           </CardContent>
         </Card>

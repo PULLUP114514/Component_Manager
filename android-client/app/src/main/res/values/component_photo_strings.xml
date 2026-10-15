@@ -1,0 +1,9 @@
+<resources>
+    <string name="component_photo_title">Component photo</string>
+    <string name="component_photo_choose">Choose photo</string>
+    <string name="component_photo_camera">Take photo</string>
+    <string name="component_photo_use">Use photo</string>
+    <string name="component_photo_local_only">Photos stay on this device and can be included in an Excel backup. Image files are not synced to the server yet.</string>
+<string name="component_photo_camera_permission">Allow camera access to take a photo, or choose an image from the gallery.</string>
+<string name="component_photo_camera_unavailable">Unable to open the camera. Try choosing an image from the gallery.</string>
+</resources>

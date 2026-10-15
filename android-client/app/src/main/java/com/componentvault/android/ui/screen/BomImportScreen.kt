@@ -527,6 +527,9 @@ internal fun BomImportScreen(
                                 Text(stringResource(R.string.bom_stock_shortage), color = MaterialTheme.colorScheme.error)
                             }
                             if (line.componentId == null) {
+                                line.candidateExplanation?.let { explanation ->
+                                    Text(explanation, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                                 Text(
                                     stringResource(
                                         if (line.candidates.isEmpty()) R.string.bom_match_none

@@ -7,6 +7,7 @@ data class BomReleaseLine(
     val availableQuantity: Int,
     val expectedUpdatedAt: String?,
     val candidates: List<InventoryMatchCandidate>,
+    val candidateExplanation: String? = null,
     val allocationPlan: List<BomAllocationPlan> = emptyList(),
     val selectionKeys: List<String> = listOf(requirement.identity.canonicalKey),
 )

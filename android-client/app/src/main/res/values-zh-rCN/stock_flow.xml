@@ -1,0 +1,8 @@
+<resources>
+    <string name="scan_stock_choose_action">选择本次库存操作</string>
+    <string name="scan_stock_mode_help">本次只需选择一次。扫描标签后核对数量和库位，确认后才会改变库存。</string>
+    <string name="scan_stock_inbound">扫码入库</string>
+    <string name="scan_stock_outbound">扫码出库</string>
+    <string name="component_internal_sku_help">没有供应商料号可留空，保存时自动生成唯一内部 SKU。</string>
+    <string name="scan_stock_select_location">请选择有效库位。</string><string name="scan_stock_location_insufficient">所选库位库存不足，请换一个库位或减少数量。</string>
+</resources>

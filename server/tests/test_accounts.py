@@ -104,6 +104,13 @@ def test_accounts_isolate_sync_and_web_inventory(tmp_path: Path, monkeypatch) ->
         assert client.put(
             "/admin-api/components/alice-only", headers=bob_headers, json=guessed_update,
         ).status_code == 404
+        assert client.request(
+            "DELETE", "/admin-api/components/alice-only", headers=bob_headers,
+            json={
+                "request_id": "guess-delete-id",
+                "expected_updated_at": unique["updated_at"],
+            },
+        ).status_code == 404
         assert client.get("/admin-api/components/alice-only", headers=alice_headers).json()["name"] == "Part"
         assert client.get("/sync/pull", headers=ADMIN).json()["components"] == []
         assert client.get("/admin-api/components/same-id", headers=ADMIN).status_code == 404

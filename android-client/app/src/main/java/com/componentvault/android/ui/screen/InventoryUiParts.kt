@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.componentvault.android.R
 import com.componentvault.android.data.PublicProductImageStore
+import com.componentvault.android.data.InventoryImageStore
 import com.componentvault.android.model.InventoryListItemUiState
 import com.componentvault.android.model.InventorySortOption
 import com.componentvault.android.model.StockMovementRecord
@@ -415,6 +416,7 @@ private fun InventoryListRowContent(
                         ProductThumbnail(
                             sku = item.sku,
                             imageUrl = item.productImageUrl,
+                            description = item.description,
                             imageSize = 52.dp,
                         )
                     }
@@ -433,16 +435,31 @@ private fun InventoryListRowContent(
 internal fun ProductThumbnail(
     sku: String,
     imageUrl: String?,
+    description: String = "",
     modifier: Modifier = Modifier,
     imageSize: Dp = 60.dp,
 ) {
     val context = LocalContext.current
     val imageStore = remember(context) { PublicProductImageStore.get(context) }
-    var bitmap by remember(sku, imageUrl) { mutableStateOf<android.graphics.Bitmap?>(null) }
-    var loading by remember(sku, imageUrl) { mutableStateOf(true) }
-    LaunchedEffect(sku, imageUrl) {
+    val localStore = remember(context) { InventoryImageStore(context) }
+    var bitmap by remember(sku, imageUrl, description) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var loading by remember(sku, imageUrl, description) { mutableStateOf(true) }
+    LaunchedEffect(sku, imageUrl, description) {
         loading = true
-        bitmap = runCatching { imageStore.load(sku, imageUrl) }.getOrNull()
+        bitmap = runCatching {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                localStore.resolve(description)?.let { bytes ->
+                    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    var sample = 1
+                    while (bounds.outWidth / sample > 256 || bounds.outHeight / sample > 256) sample *= 2
+                    android.graphics.BitmapFactory.decodeByteArray(
+                        bytes, 0, bytes.size,
+                        android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
+                    )
+                }
+            } ?: imageStore.load(sku, imageUrl)
+        }.getOrNull()
         loading = false
     }
 

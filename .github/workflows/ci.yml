@@ -152,6 +152,12 @@ jobs:
         run: >-
           gradle -p android-client :app:testDebugUnitTest
           --tests 'com.componentvault.android.data.MovementLabelResolutionTest'
+          --tests 'com.componentvault.android.data.ComponentLocationEditTest'
+          --tests 'com.componentvault.android.data.CategoryLearningStoreTest'
+          --tests 'com.componentvault.android.data.LcscOrderWorkbookParserTest'
+          --tests 'com.componentvault.android.model.LocalComponentSkuTest'
+          --tests 'com.componentvault.android.ui.screen.ImportLocationPickerUiTest'
+          --tests 'com.componentvault.android.ui.screen.ComponentPhotoSessionTest'
           --tests 'com.componentvault.android.data.ImportLearningPersistenceTest'
           --tests 'com.componentvault.android.model.ImportMappingPriorityTest'
           --tests 'com.componentvault.android.ui.screen.QuantityStepperTest'

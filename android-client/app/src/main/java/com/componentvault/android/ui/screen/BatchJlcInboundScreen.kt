@@ -1,5 +1,7 @@
 package com.componentvault.android.ui.screen
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +54,7 @@ import com.componentvault.android.data.BatchJlcRow
 import com.componentvault.android.data.BatchJlcStatus
 import com.componentvault.android.data.InventoryRepository
 import com.componentvault.android.data.LcscPublicCatalog
+import com.componentvault.android.data.LcscOrderWorkbookParser
 import com.componentvault.android.data.ComponentImportParser
 import com.componentvault.android.data.toBatchDescription
 import com.componentvault.android.model.AppPreferences
@@ -113,7 +116,6 @@ internal fun BatchJlcInboundScreen(
     var processedCount by remember { mutableStateOf(0) }
     var processTotal by remember { mutableStateOf(0) }
     var summaryExpanded by rememberSaveable { mutableStateOf(false) }
-
     fun save(value: BatchJlcDraft) {
         draft = value
         val revision = saveRevision.incrementAndGet()
@@ -138,6 +140,51 @@ internal fun BatchJlcInboundScreen(
         }
     }
     fun update(row: BatchJlcRow) = save(draft.copy(rows = draft.rows.map { if (it.id == row.id) row else it }))
+    val orderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            processing = true
+            try {
+                val imported = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use(LcscOrderWorkbookParser::parse)
+                        ?: error("无法读取所选对账单。")
+                }
+                val receipts = repository.loadBatchJlcReceipts(draft.sessionId)
+                val known = draft.rows.mapTo(mutableSetOf()) { it.id }
+                var skipped = 0
+                val added = imported.rows.mapNotNull { row ->
+                    if (row.id in receipts || !known.add(row.id)) {
+                        skipped++
+                        null
+                    } else {
+                        val location = globalLocation.ifBlank { defaultLocation }
+                        val complete = location.isNotBlank() && row.name.isNotBlank() &&
+                            row.category.isNotBlank() && row.packageName.isNotBlank()
+                        row.copy(
+                            location = location,
+                            status = if (complete) BatchJlcStatus.Ready else BatchJlcStatus.Pending,
+                            error = if (complete) "" else context.getString(R.string.batch_complete_required),
+                        )
+                    }
+                }
+                require(draft.rows.size + added.size <= BatchJlcDraftCodec.MaxRows) {
+                    "批量草稿最多 500 条，请先处理现有记录。"
+                }
+                if (added.isNotEmpty()) {
+                    save(draft.copy(rows = draft.rows + added))
+                    page = if (added.any { it.status == BatchJlcStatus.Ready }) BatchPage.Review else BatchPage.Pending
+                }
+                message = context.getString(
+                    R.string.lcsc_order_import_result,
+                    added.size, skipped, imported.mergedLines, imported.skippedFees,
+                )
+            } catch (error: Exception) {
+                message = error.message ?: context.getString(R.string.lcsc_order_import_failed)
+            } finally {
+                processing = false
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         try {
@@ -195,6 +242,17 @@ internal fun BatchJlcInboundScreen(
                         sku = sku, name = local.name, category = local.category, packageName = local.packageName,
                         quantityText = quantity, location = location,
                         error = if (quantity.isBlank()) context.getString(R.string.batch_positive_quantity) else "",
+                    ))
+                    processedCount++
+                    continue
+                }
+                if (original.id.startsWith("order-")) {
+                    val complete = quantity.isNotBlank() && location.isNotBlank() &&
+                        original.name.isNotBlank() && original.category.isNotBlank() && original.packageName.isNotBlank()
+                    update(original.copy(
+                        status = if (complete) BatchJlcStatus.Ready else BatchJlcStatus.Pending,
+                        sku = sku, quantityText = quantity, location = location,
+                        error = if (complete) "" else context.getString(R.string.batch_complete_required),
                     ))
                     processedCount++
                     continue
@@ -327,7 +385,7 @@ internal fun BatchJlcInboundScreen(
                     onClick = ::commitSelected,
                     enabled = selectedReady.isNotEmpty() && planResult.isSuccess && !busy && !saveFailed,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(stringResource(R.string.batch_commit)) }
+                ) { Text(stringResource(if (selectedReady.any { it.id.startsWith("order-") }) R.string.lcsc_order_commit_action else R.string.batch_commit)) }
                 BatchPage.Capture -> Unit
             }
             TextButton(onClick = { confirmClear = true }, enabled = !processing && !committing,
@@ -392,7 +450,24 @@ internal fun BatchJlcInboundScreen(
                     }
                 }
             }
-            item { LocationSelector(locations, globalLocation, !busy) { globalLocation = it } }
+            item {
+                if (busy) {
+                    Text(locations.firstOrNull { it.id == globalLocation }?.name
+                        ?: stringResource(R.string.batch_default_location))
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(stringResource(R.string.batch_default_location), style = MaterialTheme.typography.labelMedium)
+                        ImportLocationPicker(
+                            value = globalLocation,
+                            onValueChange = { selected ->
+                                globalLocation = selected
+                                scope.launch { locations = repository.loadStorageLocations() }
+                            },
+                            storageLocations = locations,
+                        )
+                    }
+                }
+            }
             when (page) {
                 BatchPage.Capture -> {
                     item {
@@ -410,6 +485,13 @@ internal fun BatchJlcInboundScreen(
                                 enabled = !busy,
                             ) { Text(stringResource(R.string.batch_scanner_settings)) }
                         }
+                    }
+                    item {
+                        OutlinedButton(
+                            onClick = { orderPicker.launch(arrayOf("*/*")) },
+                            enabled = loaded && !busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.lcsc_order_import_action)) }
                     }
                     item { OutlinedButton(onClick = {
                         val token = generation
@@ -564,7 +646,7 @@ private fun BatchPage.labelRes() = when (this) {
 private fun LocationSelector(locations: List<StorageLocationRecord>, value: String, enabled: Boolean, onChange: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded, { expanded = it && enabled }) {
-        OutlinedTextField(value, {}, readOnly = true, enabled = enabled,
+        OutlinedTextField(locations.firstOrNull { it.id == value }?.name ?: value, {}, readOnly = true, enabled = enabled,
             label = { Text(stringResource(R.string.batch_default_location)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
             modifier = Modifier.menuAnchor().fillMaxWidth())
@@ -583,7 +665,10 @@ private fun BatchRowCard(row: BatchJlcRow, ready: Boolean, locations: List<Stora
     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row { Checkbox(row.selected, { onUpdate(row.copy(selected = it)) }, enabled = ready && enabled)
             Text(row.sku.ifBlank { stringResource(R.string.batch_unrecognized) }, style = MaterialTheme.typography.titleMedium) }
-        Text(stringResource(R.string.batch_row_summary, row.quantityText, row.location))
+        Text(stringResource(
+            R.string.batch_row_summary, row.quantityText,
+            locations.firstOrNull { it.id == row.location }?.name ?: row.location,
+        ))
         if (row.error.isNotBlank()) Text(row.error, color = MaterialTheme.colorScheme.error)
         Row(Modifier.fillMaxWidth()) {
             TextButton(
@@ -609,14 +694,14 @@ private fun BatchEditDialog(row: BatchJlcRow, locations: List<StorageLocationRec
     var category by rememberSaveable(row.id) { mutableStateOf(row.category) }; var packageName by rememberSaveable(row.id) { mutableStateOf(row.packageName) }
     val valid = LcscPublicCatalog.normalizeSku(sku) != null && quantity.toIntOrNull()?.let { it > 0 } == true &&
         location.isNotBlank() && name.isNotBlank() && category.isNotBlank() && packageName.isNotBlank()
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.batch_edit_title)) }, text = {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(if (row.id.startsWith("order-")) R.string.lcsc_order_review_title else R.string.batch_edit_title)) }, text = {
         Column(
             Modifier.fillMaxWidth().heightIn(max = 520.dp).verticalScroll(rememberScrollState())
                 .imePadding().testTag("batch_edit_fields"),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             OutlinedTextField(sku, { sku = it.uppercase() }, label = { Text(stringResource(R.string.batch_sku)) }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(quantity, { quantity = it }, label = { Text(stringResource(R.string.batch_quantity)) }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(quantity, { quantity = it }, label = { Text(stringResource(if (row.id.startsWith("order-")) R.string.lcsc_order_quantity else R.string.batch_quantity)) }, modifier = Modifier.fillMaxWidth())
             LocationSelector(locations, location, true) { location = it }
             OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.field_name)) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(category, { category = it }, label = { Text(stringResource(R.string.field_category)) }, modifier = Modifier.fillMaxWidth())

@@ -1,0 +1,9 @@
+<resources>
+    <string name="component_photo_title">元件照片</string>
+    <string name="component_photo_choose">从相册选择</string>
+    <string name="component_photo_camera">拍照</string>
+    <string name="component_photo_use">使用照片</string>
+    <string name="component_photo_local_only">照片保存在本机，可包含在 Excel 备份中；图片文件目前不会同步到服务器。</string>
+<string name="component_photo_camera_permission">请允许相机权限后拍照，或从图库选择图片。</string>
+<string name="component_photo_camera_unavailable">无法打开相机，可从图库选择图片。</string>
+</resources>

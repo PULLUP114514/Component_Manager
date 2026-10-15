@@ -2,6 +2,8 @@ package com.componentvault.android.ui.screen
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -10,6 +12,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -34,6 +38,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.componentvault.android.data.ComponentImportParser
+import com.componentvault.android.data.CategoryLearningStore
 import com.componentvault.android.data.AppDiagnostics
 import com.componentvault.android.data.InventoryRepository
 import com.componentvault.android.data.ImportLookupRequestGate
@@ -48,6 +53,9 @@ import com.componentvault.android.model.ComponentImportFieldOrigin
 import com.componentvault.android.model.ComponentImportLearningMatchType
 import com.componentvault.android.model.ComponentOfficialLookupOutcome
 import com.componentvault.android.model.OperationResult
+import com.componentvault.android.model.LocalComponentSku
+import com.componentvault.android.model.StorageLocationRecord
+import com.componentvault.android.model.StorageLocationSaveIntent
 import com.componentvault.android.model.SyncConfiguration
 import com.componentvault.android.model.isJlcSource
 import com.componentvault.android.model.referenceDisplayName
@@ -60,6 +68,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.UUID
 
 private enum class ImportScannerMode {
     Qr,
@@ -71,12 +80,14 @@ internal fun JlcImportSurface(
     layoutMode: InventoryLayoutMode,
     syncConfiguration: SyncConfiguration,
     appPreferences: AppPreferences,
+    storageLocations: List<StorageLocationRecord> = emptyList(),
     onDismiss: () -> Unit,
     onSaveImportedComponent: (ComponentDraft, ComponentImportCandidate, (OperationResult) -> Unit) -> Unit,
     onOpenFullEditor: (ComponentDraft, ComponentImportCandidate) -> Unit,
 ) {
     val context = LocalContext.current
     val repository = remember(context) { InventoryRepository(context) }
+    val categoryLearningStore = remember(context) { CategoryLearningStore(context) }
     val strings = vaultStrings()
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
@@ -104,6 +115,12 @@ internal fun JlcImportSurface(
     var location by remember(appPreferences.suggestedImportLocation) {
         mutableStateOf(appPreferences.suggestedImportLocation)
     }
+    var availableLocations by remember(storageLocations) { mutableStateOf(storageLocations.filterNot { it.deleted }) }
+    var locationMenuExpanded by remember { mutableStateOf(false) }
+    var creatingLocation by remember { mutableStateOf(false) }
+    var newLocationName by remember { mutableStateOf("") }
+    var locationCreationBusy by remember { mutableStateOf(false) }
+    var locationCreationError by remember { mutableStateOf<String?>(null) }
     var minStockText by remember(appPreferences.defaultImportMinStock) {
         mutableStateOf(appPreferences.defaultImportMinStock.toString())
     }
@@ -220,8 +237,10 @@ internal fun JlcImportSurface(
 
     fun applyDomesticProduct(product: LcscDomesticProduct) {
         val currentQuantity = quantityText
-        val candidate = ComponentImportParser.parseScannedQr(requireNotNull(product.metadata.sku))
-            .withOfficialMetadata(product.metadata)
+        val candidate = categoryLearningStore.apply(
+            ComponentImportParser.parseScannedQr(requireNotNull(product.metadata.sku))
+                .withOfficialMetadata(product.metadata),
+        )
         lookupGeneration = lookupGate.begin(candidate.rawPayload, displayedCandidate != null).generation
         baseCandidate = candidate
         selectedDomesticSku = product.metadata.sku
@@ -249,7 +268,8 @@ internal fun JlcImportSurface(
 
         val quantity = quantityText.toIntOrNull()
         val minStock = minStockText.toIntOrNull()
-        if (sku.isBlank() || name.isBlank() || category.isBlank() || packageName.isBlank() || location.isBlank()) {
+        if (name.isBlank() || category.isBlank() || packageName.isBlank() ||
+            availableLocations.none { it.id == location }) {
             feedbackMessage = strings.forms.componentRequiredFields
             return null
         }
@@ -262,6 +282,7 @@ internal fun JlcImportSurface(
             return null
         }
         feedbackMessage = null
+        sku = LocalComponentSku.ensure(sku)
         return candidate.toComponentDraft(
             quantity = quantity,
             location = location,
@@ -283,6 +304,7 @@ internal fun JlcImportSurface(
         }
 
         feedbackMessage = null
+        sku = LocalComponentSku.ensure(sku)
         return candidate.toComponentDraft(
             quantity = quantityText.toIntOrNull()?.takeIf { it >= 0 }
                 ?: (candidate.suggestedQuantity ?: 0).coerceAtLeast(0),
@@ -386,7 +408,7 @@ internal fun JlcImportSurface(
         }
         learningMatchType = resolution.learningMatch?.matchedBy
         applyDisplayedCandidate(
-            candidate = resolution.candidate,
+            candidate = categoryLearningStore.apply(resolution.candidate),
             preserveUserEdits = true,
         )
 
@@ -435,9 +457,9 @@ internal fun JlcImportSurface(
             baseCandidate?.let { sourceCandidate ->
                 buildQuickSaveDraftOrNull()?.let { draft ->
                     onSaveImportedComponent(draft, sourceCandidate) { result ->
-                        if (!result.isSuccess) {
-                            feedbackMessage = result.message
-                        }
+                        if (result.isSuccess && categoryEdited) {
+                            displayedCandidate?.let { categoryLearningStore.learn(it, draft.category) }
+                        } else if (!result.isSuccess) feedbackMessage = result.message
                     }
                 }
             }
@@ -859,13 +881,35 @@ internal fun JlcImportSurface(
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     )
-                    OutlinedTextField(
-                        value = location,
-                        onValueChange = { location = it },
+                    Box {
+                        OutlinedButton(
+                            onClick = { locationMenuExpanded = true },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            val selected = availableLocations.firstOrNull { it.id == location }
+                            Text(selected?.name ?: androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.importer_select_location))
+                        }
+                        DropdownMenu(
+                            expanded = locationMenuExpanded,
+                            onDismissRequest = { locationMenuExpanded = false },
+                            modifier = Modifier.heightIn(max = 280.dp),
+                        ) {
+                            availableLocations.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.name, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                                    onClick = { location = option.id; locationMenuExpanded = false },
+                                )
+                            }
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            newLocationName = ""
+                            locationCreationError = null
+                            creatingLocation = true
+                        },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text(strings.common.fieldLocation) },
-                        singleLine = true,
-                    )
+                    ) { Text(androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.importer_create_location)) }
                     OutlinedTextField(
                         value = minStockText,
                         onValueChange = { minStockText = it },
@@ -917,6 +961,54 @@ internal fun JlcImportSurface(
             confirmButton = { Button(onClick = { errorDialogMessage = null }) {
                 Text(androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.action_close))
             } },
+        )
+    }
+    if (creatingLocation) {
+        AlertDialog(
+            onDismissRequest = { if (!locationCreationBusy) creatingLocation = false },
+            title = { Text(androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.importer_create_location)) },
+            text = {
+                androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = newLocationName,
+                        onValueChange = { newLocationName = it; locationCreationError = null },
+                        label = { Text(androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.importer_location_name)) },
+                        singleLine = true,
+                    )
+                    locationCreationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !locationCreationBusy && newLocationName.isNotBlank(),
+                    onClick = {
+                        val name = newLocationName.trim()
+                        val duplicate = availableLocations.firstOrNull {
+                            it.name.equals(name, ignoreCase = true)
+                        }
+                        if (duplicate != null) {
+                            locationCreationError = context.getString(com.componentvault.android.R.string.importer_location_duplicate)
+                        } else {
+                            val id = "LOC-" + UUID.randomUUID().toString().replace("-", "").take(16).uppercase()
+                            locationCreationBusy = true
+                            coroutineScope.launch {
+                                val result = repository.saveStorageLocation(id, name, StorageLocationSaveIntent.Create)
+                                locationCreationBusy = false
+                                if (result.isSuccess) {
+                                    availableLocations = repository.loadStorageLocations().filterNot { it.deleted }
+                                    location = id
+                                    creatingLocation = false
+                                } else locationCreationError = result.message
+                            }
+                        }
+                    },
+                ) { Text(androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.action_save)) }
+            },
+            dismissButton = {
+                TextButton(enabled = !locationCreationBusy, onClick = { creatingLocation = false }) {
+                    Text(androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.action_cancel))
+                }
+            },
         )
     }
 }

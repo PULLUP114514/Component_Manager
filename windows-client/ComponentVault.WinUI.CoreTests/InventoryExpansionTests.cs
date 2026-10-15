@@ -34,16 +34,47 @@ public sealed class InventoryExpansionTests : IDisposable
         store.SaveComponent(new ComponentDraft
         {
             Id = component.Id, Sku = "C1", Name = "renamed", Category = "test", PackageName = "0603",
-            Location = "B", Description = string.Empty, Quantity = 10, MinStock = 0,
+            Location = "C", Description = string.Empty, Quantity = 10, MinStock = 0,
         });
-        Assert.Equal(2, Assert.Single(store.GetComponents()).Allocations.Count);
+        var relocated = Assert.Single(store.GetComponents());
+        Assert.Equal(10, relocated.Quantity);
+        Assert.Equal(0, relocated.Allocations.Single(item => item.LocationId == "A").Quantity);
+        Assert.Equal(0, relocated.Allocations.Single(item => item.LocationId == "B").Quantity);
+        Assert.Equal(10, relocated.Allocations.Single(item => item.LocationId == "C").Quantity);
         var envelope = store.CreateSyncEnvelope();
         var pushed = Assert.Single(envelope.PushRequest.Components);
         Assert.Equal(10, pushed.Allocations!.Sum(item => item.Quantity));
+        Assert.Equal(0, pushed.Allocations!.Single(item => item.LocationId == "A").Quantity);
+        Assert.Equal(0, pushed.Allocations!.Single(item => item.LocationId == "B").Quantity);
+        Assert.Equal(10, pushed.Allocations!.Single(item => item.LocationId == "C").Quantity);
         var transfer = Assert.Single(envelope.PushRequest.StockMovements);
         Assert.Equal("A", transfer.LocationId);
         Assert.Equal("B", transfer.DestinationLocationId);
         Assert.Equal(1, envelope.PushRequest.InventoryProtocol);
+    }
+
+    [Fact]
+    public void SaveComponent_QuantityEditPreservesOtherLocationAllocation()
+    {
+        var store = Store();
+        var component = store.SaveComponent(Draft("C-EDIT-QTY", "A", 10));
+        Assert.True(store.RecordMovement(new MovementEntryDraft
+        {
+            ComponentId = component.Id, MovementType = "transfer", Quantity = 4,
+            LocationId = "A", DestinationLocationId = "B", Reason = "split",
+        }).IsSuccess);
+
+        store.SaveComponent(new ComponentDraft
+        {
+            Id = component.Id, Sku = component.Sku, Name = component.Name,
+            Category = component.Category, PackageName = component.PackageName,
+            Location = "B", Description = component.Description, Quantity = 12, MinStock = component.MinStock,
+        });
+
+        var edited = Assert.Single(store.GetComponents());
+        Assert.Equal(12, edited.Quantity);
+        Assert.Equal(6, edited.Allocations.Single(item => item.LocationId == "A").Quantity);
+        Assert.Equal(6, edited.Allocations.Single(item => item.LocationId == "B").Quantity);
     }
 
     [Fact]

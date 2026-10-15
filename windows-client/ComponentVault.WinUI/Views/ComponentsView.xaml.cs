@@ -144,7 +144,7 @@ public sealed partial class ComponentsView : Page
         if(existing is not null&&draft.Description.Contains("官方商品页：",StringComparison.Ordinal)&&draft.Quantity>0)
         {
             if(_catalogAppendBusy)return;int combined;try{combined=checked(existing.Quantity+draft.Quantity);}catch(OverflowException){await ShowMessageAsync("无法追加库存","追加后库存超过整数范围。");return;}
-            var dialog=new ContentDialog{Title="确认追加现有 SKU",Content=new TextBlock{Text=$"{existing.Sku}\n当前库存：{existing.Quantity}\n本次入库：{draft.Quantity}\n确认后合计：{combined}\n入库库位：{draft.Location}\n\n现有元件名称、分类、封装和说明将保留。",TextWrapping=TextWrapping.Wrap},PrimaryButtonText="确认追加",CloseButtonText=AppStrings.Get("Common_Cancel"),DefaultButton=ContentDialogButton.Close,XamlRoot=XamlRoot};if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
+            var dialog=new ContentDialog{Title="确认追加现有 SKU",Content=new TextBlock{Text=$"{existing.Sku}\n当前库存：{existing.Quantity}\n本次入库：{draft.Quantity}\n确认后合计：{combined}\n入库库位：{viewModel.StorageLocations.FirstOrDefault(location => location.Id == draft.Location)?.Name ?? draft.Location}\n\n现有元件名称、分类、封装和说明将保留。",TextWrapping=TextWrapping.Wrap},PrimaryButtonText="确认追加",CloseButtonText=AppStrings.Get("Common_Cancel"),DefaultButton=ContentDialogButton.Close,XamlRoot=XamlRoot};if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
             _catalogAppendBusy=true;try{await ShowOperationResultAsync(viewModel.AppendCatalogInbound(existing.Sku,draft.Quantity,draft.Location,existing.UpdatedAt));}finally{_catalogAppendBusy=false;}return;
         }
         await ShowOperationResultAsync(viewModel.SaveComponent(draft));
@@ -447,15 +447,31 @@ public sealed partial class ComponentsView : Page
         var nameBox = CreateTextBox(existing?.Name, "例如 10k 电阻");
         var categoryBox = CreateTextBox(existing?.Category, "例如 电阻");
         var packageBox = CreateTextBox(existing?.PackageName, "例如 0402");
+        var locationOptions = RuntimeViewModel?.StorageLocations.ToArray() ?? [];
         var locationBox = new ComboBox
         {
-            IsEditable = true,
-            ItemsSource = RuntimeViewModel?.StorageLocations,
-            DisplayMemberPath = "Id",
-            Text = existing?.Location ?? string.Empty,
-            PlaceholderText = "选择库位或输入新编码",
+            ItemsSource = locationOptions,
+            DisplayMemberPath = "Name",
+            PlaceholderText = "选择已有库位",
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
+        locationBox.SelectedItem = locationOptions.FirstOrDefault(item => item.Id == existing?.Location);
+        var newLocationToggle = new ToggleSwitch
+        {
+            Header = "库位来源", OffContent = "选择已有", OnContent = "新建库位",
+            IsOn = locationOptions.Length == 0,
+        };
+        var newLocationId = "LOC-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
+        var newLocationNameBox = new TextBox { Header = "新库位名称", PlaceholderText = "例如 电阻抽屉" };
+        var newLocationFields = new StackPanel { Spacing = 8 };
+        newLocationFields.Children.Add(newLocationNameBox);
+        void UpdateLocationMode()
+        {
+            locationBox.Visibility = newLocationToggle.IsOn ? Visibility.Collapsed : Visibility.Visible;
+            newLocationFields.Visibility = newLocationToggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
+        }
+        newLocationToggle.Toggled += (_, _) => UpdateLocationMode();
+        UpdateLocationMode();
         var descriptionBox = new TextBox
         {
             Text = existing?.Description ?? string.Empty,
@@ -554,7 +570,9 @@ public sealed partial class ComponentsView : Page
         panel.Children.Add(candidateActions);
 
         panel.Children.Add(CreateSectionHeader("库存与仓位", "数量与最低库存均不能为负数。"));
-        panel.Children.Add(CreateField("仓位", locationBox));
+        panel.Children.Add(newLocationToggle);
+        panel.Children.Add(CreateField("已有库位", locationBox));
+        panel.Children.Add(newLocationFields);
         panel.Children.Add(CreateField("当前库存", quantityBox));
         panel.Children.Add(CreateField("最低库存", minStockBox));
 
@@ -722,6 +740,31 @@ public sealed partial class ComponentsView : Page
                 return;
             }
 
+            var locationId = newLocationToggle.IsOn
+                ? newLocationId
+                : (locationBox.SelectedItem as StorageLocationRecord)?.Id;
+            if (string.IsNullOrWhiteSpace(locationId))
+            {
+                errorText.Text = "请选择已有库位，或填写新库位名称。";
+                args.Cancel = true;
+                return;
+            }
+            if (newLocationToggle.IsOn)
+            {
+                if (RuntimeViewModel?.StorageLocations.Any(item => item.Name.Equals(newLocationNameBox.Text.Trim(), StringComparison.OrdinalIgnoreCase)) == true)
+                {
+                    errorText.Text = "库位名称已存在，请选择已有库位。";
+                    args.Cancel = true;
+                    return;
+                }
+                var result = RuntimeViewModel?.CreateStorageLocation(locationId, newLocationNameBox.Text);
+                if (result is null || !result.IsSuccess)
+                {
+                    errorText.Text = result?.Message ?? "无法新建库位。";
+                    args.Cancel = true;
+                    return;
+                }
+            }
             draft = new ComponentDraft
             {
                 Id = existing?.Id,
@@ -729,7 +772,7 @@ public sealed partial class ComponentsView : Page
                 Name = nameBox.Text,
                 Category = categoryBox.Text,
                 PackageName = packageBox.Text,
-                Location = locationBox.Text,
+                Location = locationId,
                 Description = descriptionBox.Text,
                 Quantity = (int)Math.Round(quantityBox.Value),
                 MinStock = (int)Math.Round(minStockBox.Value),

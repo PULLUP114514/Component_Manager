@@ -6,6 +6,9 @@ import kotlin.test.assertEquals
 class OfficialCategoryNormalizerTest {
     @Test
     fun mapsKnownOfficialLeavesAcrossCommonHierarchies() {
+        assertEquals("存储卡连接器", OfficialCategoryNormalizer.normalize("Connectors / PC Card Sockets"))
+        assertEquals("音频放大器", OfficialCategoryNormalizer.normalize("Amplifiers / Comparators / Audio Amplifiers"))
+        assertEquals("MOS管", OfficialCategoryNormalizer.normalize("Transistors / Thyristors / Single FETs, MOSFETs"))
         assertEquals(
             "线性稳压器",
             OfficialCategoryNormalizer.normalize(
