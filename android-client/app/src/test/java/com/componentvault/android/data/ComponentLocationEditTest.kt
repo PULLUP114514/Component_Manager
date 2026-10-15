@@ -66,10 +66,10 @@ class ComponentLocationEditTest {
             reason = "Split", note = "", locationId = "A", destinationLocationId = "B",
         )).isSuccess)
 
-        val edited = repository.saveComponent(draft.copy(id = componentId, location = "B", quantity = 12))
+        val edited = repository.saveComponent(draft.copy(id = componentId, location = "A", quantity = 12))
 
         assertTrue(edited.isSuccess, edited.message)
-        assertEquals(mapOf("A" to 6, "B" to 6), allocations(componentId))
+        assertEquals(mapOf("A" to 8, "B" to 4), allocations(componentId))
     }
 
     private fun allocations(componentId: String): Map<String, Int> {
