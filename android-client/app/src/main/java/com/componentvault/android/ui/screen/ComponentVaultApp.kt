@@ -34,10 +34,12 @@ import com.componentvault.android.data.LabelPrintQueueCodec
 import com.componentvault.android.data.M1TestPaperProfile
 import com.componentvault.android.data.ExistingImportTarget
 import com.componentvault.android.model.ComponentDraft
+import com.componentvault.android.model.ComponentRecord
 import com.componentvault.android.model.ComponentImportCandidate
 import com.componentvault.android.model.ComponentLabelSeed
 import com.componentvault.android.model.InventoryStockFilter
 import com.componentvault.android.model.OperationResult
+import com.componentvault.android.model.StorageLocationRecord
 import com.componentvault.android.model.toLabelSeed
 import org.json.JSONObject
 
@@ -339,30 +341,7 @@ fun ComponentVaultApp(
                 )
             }
 
-            componentEditorVisible && !layoutMode.prefersDialogForms -> {
-                ComponentEditorSurface(
-                    existing = editingComponent,
-                    initialDraft = componentEditorInitialDraft,
-                    availableCategories = uiState.inventory.availableCategories,
-                    storageLocations = uiState.inventory.storageLocations,
-                    layoutMode = layoutMode,
-                    onDismiss = ::closeComponentEditor,
-                    onSave = { draft, onComplete ->
-                        submitComponentEditorDraft(
-                            draft = draft,
-                            generateLabelAfterSave = false,
-                            onComplete = onComplete,
-                        )
-                    },
-                    onSaveAndGenerateLabel = { draft, onComplete ->
-                        submitComponentEditorDraft(
-                            draft = draft,
-                            generateLabelAfterSave = true,
-                            onComplete = onComplete,
-                        )
-                    },
-                )
-            }
+            componentEditorVisible && !layoutMode.prefersDialogForms -> Unit
 
             movementEditorVisible && !layoutMode.prefersDialogForms -> {
                 MovementEditorSurface(
@@ -625,31 +604,24 @@ fun ComponentVaultApp(
             }
         }
 
+        ComponentEditorRoute(
+            visible = componentEditorVisible,
+            scannerVisible = uiState.movements.scan.isScannerVisible,
+            existing = editingComponent,
+            initialDraft = componentEditorInitialDraft,
+            availableCategories = uiState.inventory.availableCategories,
+            storageLocations = uiState.inventory.storageLocations,
+            layoutMode = layoutMode,
+            onDismiss = ::closeComponentEditor,
+            onSave = { draft, onComplete ->
+                submitComponentEditorDraft(draft, generateLabelAfterSave = false, onComplete)
+            },
+            onSaveAndGenerateLabel = { draft, onComplete ->
+                submitComponentEditorDraft(draft, generateLabelAfterSave = true, onComplete)
+            },
+        )
+
         if (!uiState.movements.scan.isScannerVisible && layoutMode.prefersDialogForms) {
-            if (componentEditorVisible) {
-                ComponentEditorSurface(
-                    existing = editingComponent,
-                    initialDraft = componentEditorInitialDraft,
-                    availableCategories = uiState.inventory.availableCategories,
-                    storageLocations = uiState.inventory.storageLocations,
-                    layoutMode = layoutMode,
-                    onDismiss = ::closeComponentEditor,
-                    onSave = { draft, onComplete ->
-                        submitComponentEditorDraft(
-                            draft = draft,
-                            generateLabelAfterSave = false,
-                            onComplete = onComplete,
-                        )
-                    },
-                    onSaveAndGenerateLabel = { draft, onComplete ->
-                        submitComponentEditorDraft(
-                            draft = draft,
-                            generateLabelAfterSave = true,
-                            onComplete = onComplete,
-                        )
-                    },
-                )
-            }
 
             if (movementEditorVisible) {
                 MovementEditorSurface(
@@ -761,6 +733,34 @@ fun ComponentVaultApp(
                 } },
             )
         }
+    }
+}
+
+// Keep one composition slot for the editor when its adaptive presentation changes.
+@Composable
+internal fun ComponentEditorRoute(
+    visible: Boolean,
+    scannerVisible: Boolean,
+    existing: ComponentRecord?,
+    initialDraft: ComponentDraft?,
+    availableCategories: List<String>,
+    storageLocations: List<StorageLocationRecord>,
+    layoutMode: InventoryLayoutMode,
+    onDismiss: () -> Unit,
+    onSave: (ComponentDraft, (OperationResult) -> Unit) -> Unit,
+    onSaveAndGenerateLabel: (ComponentDraft, (OperationResult) -> Unit) -> Unit,
+) {
+    if (visible && !scannerVisible) {
+        ComponentEditorSurface(
+            existing = existing,
+            initialDraft = initialDraft,
+            availableCategories = availableCategories,
+            storageLocations = storageLocations,
+            layoutMode = layoutMode,
+            onDismiss = onDismiss,
+            onSave = onSave,
+            onSaveAndGenerateLabel = onSaveAndGenerateLabel,
+        )
     }
 }
 

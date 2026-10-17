@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.SaverScope
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.StateRestorationTester
@@ -64,26 +65,44 @@ class InventoryDraftRecoveryTest {
     }
 
     @Test
-    fun editedFormFieldSurvivesStateRestoration() {
+    fun editedFormFieldSurvivesLayoutChangeAndStateRestoration() {
         val tester = StateRestorationTester(compose)
-        val mode = InventoryLayoutMode(
+        val compactMode = InventoryLayoutMode(
             widthClass = InventoryWidthClass.Compact,
             supportsListDetail = false,
             formPresentation = InventoryFormPresentation.FullScreenRoute,
             secondaryPanePresentation = InventorySecondaryPanePresentation.FullScreenRoute,
         )
+        val dialogMode = InventoryLayoutMode(
+            widthClass = InventoryWidthClass.Expanded,
+            supportsListDetail = true,
+            formPresentation = InventoryFormPresentation.Dialog,
+            secondaryPanePresentation = InventorySecondaryPanePresentation.SplitPane,
+        )
+        val mode = mutableStateOf(compactMode)
         tester.setContent {
             MaterialTheme {
                 ProvideComponentVaultStrings(runtimeComponentVaultStrings()) {
-                    ComponentEditorSurface(
+                    ComponentEditorRoute(
+                        visible = true,
+                        scannerVisible = false,
                         existing = null,
                         initialDraft = ComponentDraft(null, "C123", "Seed", "IC", "SOT", "A", "", 1, 0),
-                        layoutMode = mode, onDismiss = {}, onSave = { _, _ -> },
+                        availableCategories = emptyList(),
+                        storageLocations = emptyList(),
+                        layoutMode = mode.value,
+                        onDismiss = {},
+                        onSave = { _, _ -> },
+                        onSaveAndGenerateLabel = { _, _ -> },
                     )
                 }
             }
         }
         compose.onNodeWithText("Seed").performTextReplacement("Edited part")
+        compose.runOnIdle { mode.value = dialogMode }
+        compose.onNodeWithText("Edited part").assertTextContains("Edited part")
+        compose.runOnIdle { mode.value = compactMode }
+        compose.onNodeWithText("Edited part").assertTextContains("Edited part")
         tester.emulateSavedInstanceStateRestore()
         compose.onNodeWithText("Edited part").assertTextContains("Edited part")
     }

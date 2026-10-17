@@ -97,7 +97,7 @@ docker compose -f docker-compose.hub.yml --profile web up -d
 
 仓库目录：[`android-client/`](android-client/) 是 Android 客户端，[`windows-client/`](windows-client/) 是 Windows 客户端，[`admin-web/`](admin-web/) 是管理 Web，[`server/`](server/) 是 API 服务。[`client/`](client/) 是旧 Flutter 参考实现，不是当前原生 UI 的开发入口。
 
-客户端模块化从库存编辑链路开始：Windows 将编辑状态、保存决策和 SQLite 事务分开；新建库位与元件保存/追加一起提交。Android 导入页通过主 ViewModel 创建并刷新库位，支持系统重建时恢复编辑字段及待提交扫码复核输入。数据库格式、同步协议和原有库存保留；恢复能力与代码边界见[客户端库存编辑与恢复](docs/architecture.md#客户端库存编辑与恢复)。
+客户端模块化从库存编辑链路开始：Windows 将编辑状态、保存决策、库存筛选状态、数据库初始化及只读查询分开；新建库位与元件保存/追加一起提交。Android 导入页通过主 ViewModel 创建并刷新库位，支持系统重建时恢复编辑字段及待提交扫码复核输入。数据库格式、同步协议和原有库存保留；恢复能力与代码边界见[客户端库存编辑与恢复](docs/architecture.md#客户端库存编辑与恢复)。
 
 服务端使用项目内的 `server/.venv`。在 Windows PowerShell 中执行：
 
