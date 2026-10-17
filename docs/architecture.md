@@ -2,6 +2,20 @@
 
 > 标签界面：Android 的单元件标签与批量打印统一进入 `BluetoothLabelPrintScreen`，原独立预览页及诊断弹窗已移除。可编辑 `LabelDesign` 与原元件 `ComponentLabelSeed` 分开保存；前者决定显示文字和纸面位置，后者决定二维码身份。队列 v3 按张保存设计快照和元件/自由标签来源，兼容读取旧 v1/v2 元件队列。自由标签没有库存身份，元件二维码仍从 ComponentLabelSeed 生成。预览、导出和打印共用 M1 纸面渲染器，底层分帧与走纸协议保持不变。开发版功能以对应 Release 说明为准。
 
+## 客户端库存编辑与恢复
+
+第一阶段仅拆分 Windows 库存导入/编辑/库位/保存链路，不更换 WinUI、SQLite 或服务端协议，也不宣称全部客户端已经完成模块化。
+
+- `ViewModels/ComponentEditorViewModel.cs` 管理表单字段、库位选择、新建库位草稿、明确的商品来源及请求校验；准备或取消编辑不写数据库。
+- `Views/Components/ComponentEditorDialog.cs` 管理表单控件和商城查询交互；`ComponentsView` 保留页面入口与确认操作。
+- `Services/InventoryEditingService.cs` 判断保存/追加库存，SKU 查询来自数据库，不依赖筛选后的可见集合，也不解析说明文字判断导入来源。
+- `Services/InventoryStore.cs` 继续承担既有数据库实现。编辑器新建库位与元件保存或追加库存、流水、同步队列处于同一事务；失败回滚，保持总库存及多库位分配语义。独立管理库位仍可独立保存。
+- 主 ViewModel 保留现有页面刷新与同步触发；连接测试和同步串行协调。后续再逐功能拆分主 ViewModel 和仓储，不并行维护另一套库存数据库。
+
+Android 导入页创建库位统一调用主 ViewModel，完成后刷新共享库存状态。完整编辑器的文字、数量、库位以及导入来源使用 Compose 保存状态；待提交扫码批次通过 `SavedStateHandle` 保存用户输入，重建时重新读取当前库存，恢复到复核状态，不自动执行库存写入。取消或成功后清理草稿，提交失败保留供修正。已采纳的本地图片随编辑会话恢复；明确取消（包括系统返回）才删除会话新建图片，保存成功保留采用的图片。系统保存状态恢复不等同于长期草稿备份，不保证强制停止或设备重启恢复；提交期间中断应先核对记录，避免手动重复入库/出库。
+
+本阶段测试使用隔离数据库与合成元件。编译、定向测试和 CI 结果分别记录在 [current-work.md](current-work.md)，不代表真实业务数据及全量 UI 验收。
+
 ## Topology
 
 - `android-client/` is the Android Jetpack Compose client.

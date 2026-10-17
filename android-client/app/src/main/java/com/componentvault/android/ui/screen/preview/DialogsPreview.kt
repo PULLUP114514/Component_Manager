@@ -53,6 +53,7 @@ private fun JlcImportPreview() {
             layoutMode = DialogPreviewLayout,
             syncConfiguration = InventoryPreviewData.settingsState().syncConfiguration,
             appPreferences = InventoryPreviewData.settingsState().appPreferences,
+            onCreateStorageLocation = { _, _, _ -> },
             onDismiss = {},
             onSaveImportedComponent = { _, _, _ -> },
             onOpenFullEditor = { _, _ -> },

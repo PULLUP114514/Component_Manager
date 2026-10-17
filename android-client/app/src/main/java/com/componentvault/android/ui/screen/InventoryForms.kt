@@ -1,5 +1,6 @@
 package com.componentvault.android.ui.screen
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -61,23 +63,29 @@ internal fun ComponentEditorSurface(
 ) {
     val strings = vaultStrings()
     val stateKey = existing?.id ?: initialDraft?.sku.orEmpty()
-    var sku by remember(stateKey) { mutableStateOf(existing?.sku ?: initialDraft?.sku.orEmpty()) }
-    var name by remember(stateKey) { mutableStateOf(existing?.name ?: initialDraft?.name.orEmpty()) }
-    var category by remember(stateKey) { mutableStateOf(existing?.category ?: initialDraft?.category.orEmpty()) }
-    var packageName by remember(stateKey) {
+    var sku by rememberSaveable(stateKey) { mutableStateOf(existing?.sku ?: initialDraft?.sku.orEmpty()) }
+    var name by rememberSaveable(stateKey) { mutableStateOf(existing?.name ?: initialDraft?.name.orEmpty()) }
+    var category by rememberSaveable(stateKey) { mutableStateOf(existing?.category ?: initialDraft?.category.orEmpty()) }
+    var packageName by rememberSaveable(stateKey) {
         mutableStateOf(existing?.packageName ?: initialDraft?.packageName.orEmpty())
     }
-    var location by remember(stateKey) { mutableStateOf(existing?.location ?: initialDraft?.location.orEmpty()) }
-    var description by remember(stateKey) {
+    var location by rememberSaveable(stateKey) { mutableStateOf(existing?.location ?: initialDraft?.location.orEmpty()) }
+    var description by rememberSaveable(stateKey) {
         mutableStateOf(existing?.description ?: initialDraft?.description.orEmpty())
     }
-    var photoCommitted by remember(stateKey) { mutableStateOf(false) }
-    val photoOpeningDescription = remember(stateKey) { description }
-    val photoSession = rememberComponentPhotoSession(photoOpeningDescription, description) { photoCommitted }
-    var quantityText by remember(stateKey) {
+    val photoSession = rememberComponentPhotoSession(
+        stateKey = stateKey,
+        openingDescription = existing?.description ?: initialDraft?.description.orEmpty(),
+    )
+    fun dismissEditor() {
+        photoSession.finish(description, committed = false)
+        onDismiss()
+    }
+    BackHandler(enabled = !layoutMode.prefersDialogForms, onBack = ::dismissEditor)
+    var quantityText by rememberSaveable(stateKey) {
         mutableStateOf((existing?.quantity ?: initialDraft?.quantity ?: 0).toString())
     }
-    var minStockText by remember(stateKey) {
+    var minStockText by rememberSaveable(stateKey) {
         mutableStateOf((existing?.minStock ?: initialDraft?.minStock ?: 0).toString())
     }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -91,7 +99,7 @@ internal fun ComponentEditorSurface(
     AdaptiveFormSurface(
         title = title,
         layoutMode = layoutMode,
-        onDismiss = onDismiss,
+        onDismiss = ::dismissEditor,
         saveLabel = if (onSaveAndGenerateLabel == null) {
             null
         } else {
@@ -114,7 +122,7 @@ internal fun ComponentEditorSurface(
             )?.let { draft ->
                 errorMessage = null
                 onSave(draft) { result ->
-                    if (result.isSuccess) { photoCommitted = true; photoSession.finish(description, true) }
+                    if (result.isSuccess) photoSession.finish(description, committed = true)
                     if (!result.isSuccess) {
                         errorMessage = result.message
                     }
@@ -138,7 +146,7 @@ internal fun ComponentEditorSurface(
             )?.let { draft ->
                 errorMessage = null
                 onSaveAndGenerateLabel?.invoke(draft) { result ->
-                    if (result.isSuccess) { photoCommitted = true; photoSession.finish(description, true) }
+                    if (result.isSuccess) photoSession.finish(description, committed = true)
                     if (!result.isSuccess) {
                         errorMessage = result.message
                     }

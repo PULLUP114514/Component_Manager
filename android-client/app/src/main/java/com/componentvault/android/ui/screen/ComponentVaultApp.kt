@@ -93,8 +93,8 @@ fun ComponentVaultApp(
     var batchJlcVisible by rememberSaveable { mutableStateOf(false) }
     var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
     var showAddEntrySheet by rememberSaveable { mutableStateOf(false) }
-    var componentEditorInitialDraft by remember { mutableStateOf<ComponentDraft?>(null) }
-    var componentEditorImportCandidate by remember { mutableStateOf<ComponentImportCandidate?>(null) }
+    var componentEditorInitialDraft by rememberSaveable(stateSaver = ComponentDraftSaver) { mutableStateOf<ComponentDraft?>(null) }
+    var componentEditorImportCandidate by rememberSaveable(stateSaver = ComponentImportCandidateSaver) { mutableStateOf<ComponentImportCandidate?>(null) }
     var labelPrintSeed by rememberSaveable(stateSaver = LabelSeedSaver) { mutableStateOf<ComponentLabelSeed?>(null) }
     var labelPrintVisible by rememberSaveable { mutableStateOf(false) }
     var labelToolPickerVisible by rememberSaveable { mutableStateOf(false) }
@@ -251,9 +251,6 @@ fun ComponentVaultApp(
         }
     }
 
-    BackHandler(enabled = componentEditorVisible && !layoutMode.prefersDialogForms) {
-        closeComponentEditor()
-    }
     BackHandler(enabled = movementEditorVisible && !layoutMode.prefersDialogForms) {
         closeMovementEditor()
     }
@@ -393,6 +390,9 @@ fun ComponentVaultApp(
                     syncConfiguration = uiState.syncConfiguration,
                     appPreferences = uiState.appPreferences,
                     storageLocations = uiState.inventory.storageLocations,
+                    onCreateStorageLocation = { id, name, complete ->
+                        viewModel.saveStorageLocation(id, name, com.componentvault.android.model.StorageLocationSaveIntent.Create, complete)
+                    },
                     onDismiss = ::closeImportSurface,
                     onSaveImportedComponent = { draft, sourceCandidate, onComplete ->
                         submitImportedDraft(
@@ -677,6 +677,9 @@ fun ComponentVaultApp(
                     syncConfiguration = uiState.syncConfiguration,
                     appPreferences = uiState.appPreferences,
                     storageLocations = uiState.inventory.storageLocations,
+                    onCreateStorageLocation = { id, name, complete ->
+                        viewModel.saveStorageLocation(id, name, com.componentvault.android.model.StorageLocationSaveIntent.Create, complete)
+                    },
                     onDismiss = ::closeImportSurface,
                     onSaveImportedComponent = { draft, sourceCandidate, onComplete ->
                         submitImportedDraft(

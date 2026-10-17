@@ -16,12 +16,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -36,15 +36,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import org.json.JSONArray
+import org.json.JSONObject
 
 private val localImageLine = Regex("(?m)^本地图片：[0-9a-f]{64}\\.(?:png|jpg)$")
 
 /** Owned by the stable parent editor so scrolling a lazy item never discards its photo. */
-internal class ComponentPhotoSession(context: Context, openingDescription: String) {
+internal class ComponentPhotoSession(
+    context: Context,
+    private val openingDescription: String,
+    restoredCreatedMarkers: Collection<String> = emptyList(),
+) {
     private val imageStore = InventoryImageStore(context)
     private val openingMarker = localImageLine.find(openingDescription)?.value
-    private val createdMarkers = mutableSetOf<String>()
+    private val createdMarkers = restoredCreatedMarkers.toMutableSet()
     private var finished = false
+
+    fun snapshot(): String = JSONObject().apply {
+        put("openingDescription", openingDescription)
+        put("createdMarkers", JSONArray(createdMarkers.toList()))
+    }.toString()
 
     fun recordCreated(marker: String) {
         if (!finished) createdMarkers += marker
@@ -57,22 +68,36 @@ internal class ComponentPhotoSession(context: Context, openingDescription: Strin
         createdMarkers.filter { it != openingMarker && it != retained }
             .forEach(imageStore::delete)
     }
+
+    companion object {
+        fun restore(context: Context, text: String): ComponentPhotoSession {
+            val json = JSONObject(text)
+            val markers = json.getJSONArray("createdMarkers")
+            return ComponentPhotoSession(
+                context = context,
+                openingDescription = json.getString("openingDescription"),
+                restoredCreatedMarkers = List(markers.length()) { markers.getString(it) },
+            )
+        }
+    }
 }
 
 /** Call once in the editor's stable composable scope, outside LazyColumn items. */
 @Composable
 internal fun rememberComponentPhotoSession(
+    stateKey: String,
     openingDescription: String,
-    currentDescription: String,
-    isCommitted: () -> Boolean = { false },
 ): ComponentPhotoSession {
     val context = LocalContext.current
-    val session = remember(context, openingDescription) { ComponentPhotoSession(context, openingDescription) }
-    val latestDescription = rememberUpdatedState(currentDescription)
-    DisposableEffect(session) {
-        onDispose { session.finish(latestDescription.value, isCommitted()) }
+    val saver = remember(context) {
+        Saver<ComponentPhotoSession, String>(
+            save = { session -> session.snapshot() },
+            restore = { ComponentPhotoSession.restore(context, it) },
+        )
     }
-    return session
+    return rememberSaveable(stateKey, saver = saver) {
+        ComponentPhotoSession(context, openingDescription)
+    }
 }
 
 /** The parent editor owns save/cancel. A picked photo remains in memory until Use is pressed. */

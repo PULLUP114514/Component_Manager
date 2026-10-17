@@ -7,6 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.componentvault.android.R
 import com.componentvault.android.data.InventoryRepository
@@ -59,11 +61,13 @@ internal data class InventoryBackupUiState(
 
 class InventoryViewModel(
     application: Application,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : AndroidViewModel(application) {
     private val repository = InventoryRepository(application)
     var startupFailure by mutableStateOf<String?>(null)
         private set
     private var initialLoadComplete = false
+    private var movementBatchCommitInProgress = false
     private var allComponentsCache: List<ComponentRecord> = emptyList()
     private var allMovementsCache: List<StockMovementRecord> = emptyList()
     private var issuedQuantitiesCache: Map<String, Long> = emptyMap()
@@ -90,7 +94,18 @@ class InventoryViewModel(
         private set
 
     init {
+        savedStateHandle.get<String>(MOVEMENT_BATCH_DRAFT_KEY)?.let { saved ->
+            runCatching { MovementBatchDraftCodec.decode(saved) }.onSuccess { session ->
+                uiState = uiState.copy(movements = uiState.movements.copy(batchSession = session))
+            }.onFailure { savedStateHandle.remove<String>(MOVEMENT_BATCH_DRAFT_KEY) }
+        }
         refresh()
+    }
+
+    private fun saveMovementBatchDraft() {
+        val session = uiState.movements.batchSession
+        if (session.queuedItems.isEmpty()) savedStateHandle.remove<String>(MOVEMENT_BATCH_DRAFT_KEY)
+        else savedStateHandle[MOVEMENT_BATCH_DRAFT_KEY] = MovementBatchDraftCodec.encode(session)
     }
 
     fun refresh() {
@@ -432,6 +447,7 @@ class InventoryViewModel(
                 batchSession = MovementBatchSessionUiState(),
             ),
         )
+        saveMovementBatchDraft()
     }
 
     fun updateMovementBatchItemMovementType(
@@ -505,11 +521,13 @@ class InventoryViewModel(
                 ),
             ),
         )
+        saveMovementBatchDraft()
     }
 
     fun commitMovementBatch(
         onComplete: (OperationResult) -> Unit = {},
     ) {
+        if (movementBatchCommitInProgress) return
         val validation = validateMovementBatchSession(uiState.movements.batchSession)
         if (!validation.isValid) {
             uiState = uiState.copy(
@@ -522,11 +540,15 @@ class InventoryViewModel(
                 ),
                 statusMessage = validation.message,
             )
+            saveMovementBatchDraft()
             onComplete(OperationResult(isSuccess = false, message = validation.message))
             return
         }
 
         val drafts = validation.drafts
+        movementBatchCommitInProgress = true
+        // Do not restore a review during an in-flight write: its outcome may be unknown.
+        savedStateHandle.remove<String>(MOVEMENT_BATCH_DRAFT_KEY)
         viewModelScope.launch {
             uiState = uiState.copy(
                 isBusy = true,
@@ -539,7 +561,11 @@ class InventoryViewModel(
                     batchSession = validation.session.copy(stage = MovementBatchStage.Review),
                 ),
             )
-            val result = repository.recordMovementsBatch(drafts)
+            val result = try {
+                repository.recordMovementsBatch(drafts)
+            } finally {
+                movementBatchCommitInProgress = false
+            }
             if (result.isSuccess) {
                 uiState = uiState.copy(
                     movements = buildMovementsUiState(
@@ -549,6 +575,8 @@ class InventoryViewModel(
                         batchSession = MovementBatchSessionUiState(),
                     ),
                 )
+            } else {
+                saveMovementBatchDraft()
             }
             reloadState(
                 statusMessage = result.message,
@@ -597,6 +625,7 @@ class InventoryViewModel(
                         ).copy(stage = MovementBatchStage.Review),
                     ),
                 )
+                saveMovementBatchDraft()
             } else {
                 uiState = uiState.copy(
                     movements = buildMovementsUiState(
@@ -918,6 +947,7 @@ class InventoryViewModel(
                 ),
             ),
         )
+        saveMovementBatchDraft()
     }
 
     private fun enqueueMovementBatchItem(
@@ -1209,8 +1239,14 @@ class InventoryViewModel(
     }
 
     companion object {
+        private const val MOVEMENT_BATCH_DRAFT_KEY = "movement_batch_review_draft"
         fun factory(application: Application): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>, extras: androidx.lifecycle.viewmodel.CreationExtras): T {
+                    return InventoryViewModel(application, extras.createSavedStateHandle()) as T
+                }
+
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     return InventoryViewModel(application) as T

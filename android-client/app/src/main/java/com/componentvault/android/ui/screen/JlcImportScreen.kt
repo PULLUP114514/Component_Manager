@@ -55,7 +55,6 @@ import com.componentvault.android.model.ComponentOfficialLookupOutcome
 import com.componentvault.android.model.OperationResult
 import com.componentvault.android.model.LocalComponentSku
 import com.componentvault.android.model.StorageLocationRecord
-import com.componentvault.android.model.StorageLocationSaveIntent
 import com.componentvault.android.model.SyncConfiguration
 import com.componentvault.android.model.isJlcSource
 import com.componentvault.android.model.referenceDisplayName
@@ -81,6 +80,7 @@ internal fun JlcImportSurface(
     syncConfiguration: SyncConfiguration,
     appPreferences: AppPreferences,
     storageLocations: List<StorageLocationRecord> = emptyList(),
+    onCreateStorageLocation: (String, String, (OperationResult) -> Unit) -> Unit,
     onDismiss: () -> Unit,
     onSaveImportedComponent: (ComponentDraft, ComponentImportCandidate, (OperationResult) -> Unit) -> Unit,
     onOpenFullEditor: (ComponentDraft, ComponentImportCandidate) -> Unit,
@@ -991,11 +991,9 @@ internal fun JlcImportSurface(
                         } else {
                             val id = "LOC-" + UUID.randomUUID().toString().replace("-", "").take(16).uppercase()
                             locationCreationBusy = true
-                            coroutineScope.launch {
-                                val result = repository.saveStorageLocation(id, name, StorageLocationSaveIntent.Create)
+                            onCreateStorageLocation(id, name) { result ->
                                 locationCreationBusy = false
                                 if (result.isSuccess) {
-                                    availableLocations = repository.loadStorageLocations().filterNot { it.deleted }
                                     location = id
                                     creatingLocation = false
                                 } else locationCreationError = result.message
