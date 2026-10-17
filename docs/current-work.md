@@ -1,12 +1,12 @@
 # 2026-10-18 客户端第一阶段模块化
 
-- 用户授权范围：Windows 库存、导入编辑、库位和保存链路；Android 库位刷新与草稿恢复。保留现有 SQLite 数据、同步协议及功能，计划发布 `0.7.8-dev.11` 验证。
+- 用户授权范围：Windows 库存、导入编辑、库位和保存链路；Android 库位刷新与草稿恢复。保留现有 SQLite 数据、同步协议及功能，已发布 `0.7.8-dev.11` 供验证。
 - Windows：独立 `ComponentEditorDialog`、`ComponentEditorViewModel`、`InventoryEditingService`，页面负责显示和确认；商城来源绑定返回的 SKU，不解析说明文案。SKU 查重直达数据库，不受列表筛选影响。
 - Windows：新库位与元件保存/商城追加、流水及同步队列同事务提交，失败回滚；事务内检查活动同名库位。保存失败保留编辑输入；已提交但刷新失败明确显示已保存，避免重复追加。连接测试和同步串行协调，保存后选择按 ID 或归一化 SKU 恢复。
 - Android：导入页库位创建统一经主 ViewModel 刷新；编辑字段、导入来源及已采纳图片会话支持系统保存状态恢复；系统 Back 与取消按钮统一清理图片。待提交扫码复核输入通过 SavedStateHandle 恢复，不自动提交，取消/成功清理、失败保留。
 - 恢复边界：不保证强制停止或设备重启恢复；提交中断后应先核对流水；未点击“使用”的候选图片仍为临时内存。
 - 本地定向验证：Windows 26 项相关测试通过，WinUI 编译通过（既有 BOM 警告）；Android InventoryDraftRecoveryTest 4 项及 ComponentPhotoSessionTest 3 项通过，生产 Kotlin 编译通过。新增恢复测试加入 CI，去除已有的重复扫码入口测试参数。
-- 代码复核修正了保存后刷新异常、SKU 空格重选、图片恢复后清理及系统 Back 路径。未操作真实库存，未进行桌面 UI 或本轮手机手动验收。GitHub CI 39078187456 全部通过（代码提交 beeae33，含 Windows 204473a）；dev 附件发布结果待记录。
+- 代码复核修正了保存后刷新异常、SKU 空格重选、图片恢复后清理及系统 Back 路径。未操作真实库存，未进行桌面 UI 或本轮手机手动验收。GitHub CI 39078187456 全部通过（代码提交 beeae33，含 Windows 204473a）；发布提交 b786587 的 CI 39078513751 同样通过。Release From Changelog 39078513735 成功，v0.7.8-dev.11 已核对 prerelease=true、draft=false，包含 APK、Windows x64 ZIP 与 Web ZIP；Docker 发布跳过。
 
 # 2026-10-18 记录页扫码入口闪退修复
 
