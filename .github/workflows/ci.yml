@@ -189,6 +189,8 @@ jobs:
           --tests 'com.componentvault.android.data.LabelPrint*Test'
           --tests 'com.componentvault.android.ui.screen.BluetoothLabelPrintUiTest'
           --tests 'com.componentvault.android.ui.screen.MovementScanFlowTest'
+          --tests 'com.componentvault.android.ui.screen.MovementScanEntryUiTest'
+          --tests 'com.componentvault.android.ui.screen.MovementScanEntryUiTest'
           --tests 'com.componentvault.android.data.LcscCatalogRoutePolicyTest'
           --tests 'com.componentvault.android.data.LcscCatalogCacheTest'
           --tests 'com.componentvault.android.data.AppDiagnosticsTest'

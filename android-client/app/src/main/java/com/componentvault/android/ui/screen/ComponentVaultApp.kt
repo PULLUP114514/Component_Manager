@@ -251,15 +251,6 @@ fun ComponentVaultApp(
         }
     }
 
-    if (movementScanModeVisible) {
-        MovementScanModeDialog(
-            onDismiss = { movementScanModeVisible = false },
-            onSelect = { action ->
-                movementScanModeVisible = false
-                viewModel.startMovementScan(action)
-            },
-        )
-    }
     BackHandler(enabled = componentEditorVisible && !layoutMode.prefersDialogForms) {
         closeComponentEditor()
     }
@@ -282,6 +273,15 @@ fun ComponentVaultApp(
     }
 
     ProvideComponentVaultStrings(strings) {
+        if (movementScanModeVisible) {
+            MovementScanModeDialog(
+                onDismiss = { movementScanModeVisible = false },
+                onSelect = { action ->
+                    movementScanModeVisible = false
+                    viewModel.startMovementScan(action)
+                },
+            )
+        }
         when {
             uiState.movements.scan.isScannerVisible -> {
                 JlcQrScannerSurface(
