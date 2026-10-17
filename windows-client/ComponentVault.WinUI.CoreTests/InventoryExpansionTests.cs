@@ -201,7 +201,8 @@ public sealed class InventoryExpansionTests : IDisposable
         Assert.Equal(originalComponent.UpdatedAt, unchangedComponent.UpdatedAt);
         Assert.Equal(2, Assert.Single(unchangedComponent.Allocations).Quantity);
 
-        Assert.True(store.CreateStorageLocation("B", "Original A").IsSuccess);
+        Assert.False(store.CreateStorageLocation("B", " original a ").IsSuccess);
+        Assert.True(store.CreateStorageLocation("B", "Bin B").IsSuccess);
         Assert.True(store.RecordMovement(new MovementEntryDraft
         {
             ComponentId = component.Id, MovementType = "transfer", Quantity = 2,

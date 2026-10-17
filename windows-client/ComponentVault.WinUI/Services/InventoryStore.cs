@@ -140,6 +140,17 @@ public sealed class InventoryStore
         return GetComponents();
     }
 
+    public ComponentRecord? FindActiveComponentBySku(string sku)
+    {
+        if (string.IsNullOrWhiteSpace(sku)) return null;
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id FROM components WHERE UPPER(sku)=UPPER($sku) AND deleted=0 LIMIT 1";
+        command.Parameters.AddWithValue("$sku", sku.Trim());
+        var id = command.ExecuteScalar() as string;
+        return id is null ? null : GetComponentById(connection, id);
+    }
+
     public IReadOnlyList<StorageLocationRecord> GetStorageLocations(bool includeDeleted = false)
     {
         using var connection = OpenConnection();
@@ -165,23 +176,37 @@ public sealed class InventoryStore
 
     public OperationResult CreateStorageLocation(string id, string name)
     {
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        var result = InsertNewLocation(connection, id, name);
+        if (!result.IsSuccess) return result;
+        transaction.Commit();
+        return OperationResult.Success("库位已新建。");
+    }
+
+    private static OperationResult InsertNewLocation(SqliteConnection connection, string id, string name)
+    {
         var validation = ValidateStorageLocation(id, name);
         if (!validation.IsSuccess) return validation;
         var normalized = id.Trim();
-        using var connection = OpenConnection();
-        using var transaction = connection.BeginTransaction();
-        var updatedAt = UtcNow();
-        using (var insert = connection.CreateCommand())
+        var normalizedName = name.Trim();
+        using (var duplicateName = connection.CreateCommand())
         {
-            insert.CommandText = "INSERT INTO storage_locations(id,name,updated_at,deleted) VALUES($id,$name,$updated_at,0) ON CONFLICT(id) DO NOTHING";
-            insert.Parameters.AddWithValue("$id", normalized);
-            insert.Parameters.AddWithValue("$name", name.Trim());
-            insert.Parameters.AddWithValue("$updated_at", updatedAt);
-            if (insert.ExecuteNonQuery() == 0)
-                return OperationResult.Failure("库位编码已存在；原库位数据已保留。");
+            duplicateName.CommandText =
+                "SELECT EXISTS(SELECT 1 FROM storage_locations WHERE deleted=0 AND name=$name COLLATE NOCASE)";
+            duplicateName.Parameters.AddWithValue("$name", normalizedName);
+            if (Convert.ToInt64(duplicateName.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
+                return OperationResult.Failure("库位名称已存在，请选择已有库位。");
         }
+        var updatedAt = UtcNow();
+        using var insert = connection.CreateCommand();
+        insert.CommandText = "INSERT INTO storage_locations(id,name,updated_at,deleted) VALUES($id,$name,$updated_at,0) ON CONFLICT(id) DO NOTHING";
+        insert.Parameters.AddWithValue("$id", normalized);
+        insert.Parameters.AddWithValue("$name", normalizedName);
+        insert.Parameters.AddWithValue("$updated_at", updatedAt);
+        if (insert.ExecuteNonQuery() == 0)
+            return OperationResult.Failure("库位编码已存在；原库位数据已保留。");
         EnqueueEntity(connection, "storage_location", normalized, updatedAt);
-        transaction.Commit();
         return OperationResult.Success("库位已新建。");
     }
 
@@ -294,11 +319,94 @@ public sealed class InventoryStore
         catch(Exception exception) when(exception is OverflowException or InvalidOperationException or SqliteException){return OperationResult.Failure(exception.Message);}
     }
 
-    public OperationResult AppendCatalogInbound(string sku,int quantity,string locationId,string expectedUpdatedAt)
+    public OperationResult AppendCatalogInbound(
+        string sku,
+        int quantity,
+        string locationId,
+        string expectedUpdatedAt,
+        string? newLocationName = null)
     {
-        if(LcscPublicCatalog.NormalizeSku(sku) is null||quantity<=0||string.IsNullOrWhiteSpace(locationId))return OperationResult.Failure("C 编号、入库数量或库位无效。");
-        try{using var connection=OpenConnection();using var transaction=connection.BeginTransaction();using var find=connection.CreateCommand();find.CommandText="SELECT id,quantity,updated_at FROM components WHERE UPPER(sku)=UPPER($sku) AND deleted=0";find.Parameters.AddWithValue("$sku",sku);using var reader=find.ExecuteReader();if(!reader.Read())return OperationResult.Failure("目标 SKU 已不存在，请重新导入。");var id=reader.GetString(0);var current=reader.GetInt32(1);var updatedAt=reader.GetString(2);if(reader.Read())return OperationResult.Failure("存在多个活动 SKU，无法安全追加。");reader.Close();if(updatedAt!=expectedUpdatedAt)return OperationResult.Failure("确认期间库存已变化，请重新核对数量。");using(var location=connection.CreateCommand()){location.CommandText="SELECT EXISTS(SELECT 1 FROM storage_locations WHERE id=$id AND deleted=0)";location.Parameters.AddWithValue("$id",locationId);if(Convert.ToInt64(location.ExecuteScalar(),CultureInfo.InvariantCulture)==0)return OperationResult.Failure("所选库位不存在或已删除。");}var total=checked(current+quantity);var allocation=checked(GetAllocationQuantity(connection,id,locationId)+quantity);var at=UtcNow();SetAllocationQuantity(connection,id,locationId,allocation);using(var update=connection.CreateCommand()){update.CommandText="UPDATE components SET quantity=$quantity,location=$location,updated_at=$at WHERE id=$id";update.Parameters.AddWithValue("$quantity",total);update.Parameters.AddWithValue("$location",locationId);update.Parameters.AddWithValue("$at",at);update.Parameters.AddWithValue("$id",id);update.ExecuteNonQuery();}var movementId="mov-"+Guid.NewGuid().ToString("N");using(var movement=connection.CreateCommand()){movement.CommandText="INSERT INTO stock_movements(id,component_id,movement_type,quantity,reason,note,happened_at,updated_at,deleted,location_id,destination_location_id) VALUES($mid,$id,'inbound',$quantity,'嘉立创商城单条入库','',$at,$at,0,$location,NULL)";movement.Parameters.AddWithValue("$mid",movementId);movement.Parameters.AddWithValue("$id",id);movement.Parameters.AddWithValue("$quantity",quantity);movement.Parameters.AddWithValue("$at",at);movement.Parameters.AddWithValue("$location",locationId);movement.ExecuteNonQuery();}EnqueueEntity(connection,"component",id,at);EnqueueEntity(connection,"stock_movement",movementId,at);transaction.Commit();return OperationResult.Success($"已追加 {quantity}，当前库存 {total}。");}
-        catch(OverflowException){return OperationResult.Failure("追加后库存超过整数范围。");}catch(SqliteException exception){return OperationResult.Failure(exception.Message);}
+        if (LcscPublicCatalog.NormalizeSku(sku) is null
+            || quantity <= 0 || string.IsNullOrWhiteSpace(locationId))
+            return OperationResult.Failure("C 编号、入库数量或库位无效。");
+
+        try
+        {
+            using var connection = OpenConnection();
+            using var transaction = connection.BeginTransaction();
+            using var find = connection.CreateCommand();
+            find.CommandText =
+                "SELECT id,quantity,updated_at FROM components WHERE UPPER(sku)=UPPER($sku) AND deleted=0";
+            find.Parameters.AddWithValue("$sku", sku);
+            using var reader = find.ExecuteReader();
+            if (!reader.Read())
+                return OperationResult.Failure("目标 SKU 已不存在，请重新导入。");
+
+            var componentId = reader.GetString(0);
+            var currentQuantity = reader.GetInt32(1);
+            var updatedAt = reader.GetString(2);
+            if (reader.Read())
+                return OperationResult.Failure("存在多个活动 SKU，无法安全追加。");
+            reader.Close();
+
+            if (updatedAt != expectedUpdatedAt)
+                return OperationResult.Failure("确认期间库存已变化，请重新核对数量。");
+
+            if (newLocationName is not null)
+            {
+                var created = InsertNewLocation(connection, locationId, newLocationName);
+                if (!created.IsSuccess) return created;
+            }
+            using (var location = connection.CreateCommand())
+            {
+                location.CommandText =
+                    "SELECT EXISTS(SELECT 1 FROM storage_locations WHERE id=$id AND deleted=0)";
+                location.Parameters.AddWithValue("$id", locationId);
+                if (Convert.ToInt64(location.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
+                    return OperationResult.Failure("所选库位不存在或已删除。");
+            }
+
+            var newTotal = checked(currentQuantity + quantity);
+            var newAllocation = checked(GetAllocationQuantity(connection, componentId, locationId) + quantity);
+            var at = UtcNow();
+            SetAllocationQuantity(connection, componentId, locationId, newAllocation);
+            using (var update = connection.CreateCommand())
+            {
+                update.CommandText =
+                    "UPDATE components SET quantity=$quantity,location=$location,updated_at=$at WHERE id=$id";
+                update.Parameters.AddWithValue("$quantity", newTotal);
+                update.Parameters.AddWithValue("$location", locationId);
+                update.Parameters.AddWithValue("$at", at);
+                update.Parameters.AddWithValue("$id", componentId);
+                update.ExecuteNonQuery();
+            }
+
+            var movementId = "mov-" + Guid.NewGuid().ToString("N");
+            using (var movement = connection.CreateCommand())
+            {
+                movement.CommandText =
+                    "INSERT INTO stock_movements(id,component_id,movement_type,quantity,reason,note,happened_at,updated_at,deleted,location_id,destination_location_id) " +
+                    "VALUES($mid,$id,'inbound',$quantity,'嘉立创商城单条入库','',$at,$at,0,$location,NULL)";
+                movement.Parameters.AddWithValue("$mid", movementId);
+                movement.Parameters.AddWithValue("$id", componentId);
+                movement.Parameters.AddWithValue("$quantity", quantity);
+                movement.Parameters.AddWithValue("$at", at);
+                movement.Parameters.AddWithValue("$location", locationId);
+                movement.ExecuteNonQuery();
+            }
+            EnqueueEntity(connection, "component", componentId, at);
+            EnqueueEntity(connection, "stock_movement", movementId, at);
+            transaction.Commit();
+            return OperationResult.Success($"已追加 {quantity}，当前库存 {newTotal}。");
+        }
+        catch (OverflowException)
+        {
+            return OperationResult.Failure("追加后库存超过整数范围。");
+        }
+        catch (SqliteException exception)
+        {
+            return OperationResult.Failure(exception.Message);
+        }
     }
 
     public IReadOnlyDictionary<string, long> GetCumulativeOutboundQuantities()
@@ -388,7 +496,7 @@ public sealed class InventoryStore
         return OperationResult.Success("同步设置已保存到本机。");
     }
 
-    public ComponentRecord SaveComponent(ComponentDraft draft)
+    public ComponentRecord SaveComponent(ComponentDraft draft, string? newLocationName = null)
     {
         ValidateComponentDraft(draft);
 
@@ -396,6 +504,11 @@ public sealed class InventoryStore
         using var transaction = connection.BeginTransaction();
 
         EnsureUniqueActiveSku(connection, draft.Sku.Trim(), draft.Id);
+        if (newLocationName is not null)
+        {
+            var created = InsertNewLocation(connection, draft.Location, newLocationName);
+            if (!created.IsSuccess) throw new InvalidOperationException(created.Message);
+        }
 
         var componentId = draft.Id ?? $"cmp-{Guid.NewGuid():N}";
         var existingComponent = draft.Id is null ? null : GetComponentById(connection, componentId);
@@ -477,8 +590,10 @@ public sealed class InventoryStore
 
         EnqueueEntity(connection, "component", componentId, updatedAt);
 
+        var savedComponent = GetComponentById(connection, componentId)
+            ?? throw new InvalidOperationException("保存后未找到元器件。");
         transaction.Commit();
-        return GetComponentById(componentId);
+        return savedComponent;
     }
 
     public OperationResult SoftDeleteComponent(string componentId)
@@ -1528,7 +1643,7 @@ public sealed class InventoryStore
             """
             SELECT COUNT(*)
             FROM components
-            WHERE deleted = 0 AND sku = $sku AND id != COALESCE($id, '')
+            WHERE deleted = 0 AND UPPER(sku) = UPPER($sku) AND id != COALESCE($id, '')
             """;
         command.Parameters.AddWithValue("$sku", sku);
         command.Parameters.AddWithValue("$id", (object?)componentId ?? DBNull.Value);

@@ -21,6 +21,7 @@ public sealed class MainViewModel : ObservableObject
     private static readonly TimeSpan AutoSyncDelay = TimeSpan.FromMilliseconds(750);
 
     private readonly InventoryStore _store;
+    private readonly InventoryEditingService _inventoryEditing;
     private readonly InventorySyncService _syncService;
     private readonly BomPlanningService _bomPlanningService = new();
     private readonly SemaphoreSlim _syncGate = new(1, 1);
@@ -43,6 +44,7 @@ public sealed class MainViewModel : ObservableObject
     public MainViewModel(InventoryStore store, InventorySyncService syncService)
     {
         _store = store;
+        _inventoryEditing = new InventoryEditingService(store);
         _syncService = syncService;
 
         _store.Initialize();
@@ -210,6 +212,28 @@ public sealed class MainViewModel : ObservableObject
     }
 
     public IReadOnlyList<ComponentRecord> AvailableComponents => _allComponents;
+
+    public ComponentRecord? FindActiveComponentBySku(string sku) => _inventoryEditing.FindActiveSku(sku);
+
+    public ComponentEditPlan PrepareComponentEdit(ComponentEditRequest request) =>
+        _inventoryEditing.Prepare(request);
+
+    public OperationResult CommitComponentEdit(ComponentEditPlan plan)
+    {
+        var result = _inventoryEditing.Commit(plan);
+        return InventoryEditWriteCoordinator.AfterCommit(result,
+            () =>
+            {
+                Refresh();
+                var savedId = plan.AppendTarget?.Id ?? plan.Request.Draft.Id;
+                SelectedComponent = _allComponents.FirstOrDefault(component =>
+                    savedId is not null
+                        ? component.Id == savedId
+                        : component.Sku.Equals(
+                            plan.Request.Draft.Sku.Trim(), StringComparison.OrdinalIgnoreCase));
+            },
+            ScheduleAutoSync);
+    }
 
     public IReadOnlyList<StorageLocationRecord> GetAllStorageLocations() => _store.GetStorageLocations(includeDeleted: true);
 
@@ -533,24 +557,6 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ShellSyncSummary));
     }
 
-    public OperationResult SaveComponent(ComponentDraft draft)
-    {
-        try
-        {
-            var savedComponent = _store.SaveComponent(draft);
-            Refresh();
-            SelectedComponent = Components.FirstOrDefault(component => component.Id == savedComponent.Id);
-            ScheduleAutoSync();
-            return OperationResult.Success(
-                draft.Id is null ? "元器件已新增。" : "元器件已更新。"
-            );
-        }
-        catch (Exception exception)
-        {
-            return OperationResult.Failure(exception.Message);
-        }
-    }
-
     public OperationResult CreateStorageLocation(string id, string name)
     {
         var result = _store.CreateStorageLocation(id, name);
@@ -577,7 +583,6 @@ public sealed class MainViewModel : ObservableObject
     }
     public bool IsBatchReceiptCommitted(string receiptId)=>_store.IsBatchReceiptCommitted(receiptId);
     public OperationResult CommitBatchInbound(BatchInboundCommitRequest request){var result=_store.CommitBatchInbound(request);if(result.IsSuccess){Refresh();ScheduleAutoSync();}return result;}
-    public OperationResult AppendCatalogInbound(string sku,int quantity,string location,string expectedUpdatedAt){var result=_store.AppendCatalogInbound(sku,quantity,location,expectedUpdatedAt);if(result.IsSuccess){Refresh();ScheduleAutoSync();}return result;}
 
     private InventoryRestorePreview? _approvedInventoryRestorePreview;
     public void ExportInventoryWorkbook(string path) => new InventoryWorkbookBackup(_store).Export(path);
@@ -684,9 +689,10 @@ public sealed class MainViewModel : ObservableObject
         bool autoSyncEnabled
     )
     {
-        IsBusy = true;
+        await _syncGate.WaitAsync();
         try
         {
+            IsBusy = true;
             var draft = SyncConfiguration.WithDraftConnection(
                 serverBaseUrl,
                 fallbackServerBaseUrl,
@@ -700,6 +706,7 @@ public sealed class MainViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+            _syncGate.Release();
         }
     }
 
