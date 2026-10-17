@@ -5,7 +5,6 @@ import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.componentvault.android.R
@@ -30,7 +29,7 @@ class MovementScanEntryUiTest {
         val model = InventoryViewModel(context)
         compose.setContent { MaterialTheme { ComponentVaultApp(model) } }
 
-        compose.onNodeWithContentDescription(context.getString(R.string.destination_movements))
+        compose.onNodeWithText(context.getString(R.string.destination_movements))
             .performClick()
         val scanLabel = context.getString(R.string.movements_action_scan_label)
         val dialogTitle = context.getString(R.string.scan_stock_choose_action)
