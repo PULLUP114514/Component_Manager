@@ -14,14 +14,11 @@ public sealed class MainViewModel : ObservableObject
 {
     private const string AllCategoriesOption = "全部分类";
     private const string AllLocationsOption = "全部仓位";
-    private const string SortUpdatedDescOption = "最近更新";
-    private const string SortNameAscOption = "名称 A-Z";
-    private const string SortLowStockFirstOption = "库存紧张优先";
-    private const string SortQuantityDescOption = "库存数量";
     private static readonly TimeSpan AutoSyncDelay = TimeSpan.FromMilliseconds(750);
 
     private readonly InventoryStore _store;
     private readonly InventoryEditingService _inventoryEditing;
+    public InventoryViewModel Inventory { get; }
     private readonly InventorySyncService _syncService;
     private readonly BomPlanningService _bomPlanningService = new();
     private readonly SemaphoreSlim _syncGate = new(1, 1);
@@ -30,21 +27,36 @@ public sealed class MainViewModel : ObservableObject
 
     private DashboardSnapshot _dashboard;
     private SyncConfiguration _syncConfiguration;
-    private string _componentSearchText = string.Empty;
-    private bool _showLowStockOnly;
     private bool _isBusy;
     private string _statusMessage;
-    private ComponentRecord? _selectedComponent;
     private StockMovementRecord? _selectedMovement;
-    private IReadOnlyList<ComponentRecord> _allComponents = [];
-    private string _selectedComponentCategoryFilter = AllCategoriesOption;
-    private string _selectedComponentLocationFilter = AllLocationsOption;
-    private string _selectedComponentSortOption = SortUpdatedDescOption;
 
     public MainViewModel(InventoryStore store, InventorySyncService syncService)
     {
         _store = store;
         _inventoryEditing = new InventoryEditingService(store);
+        Inventory = new InventoryViewModel(store);
+        Inventory.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName is null) return;
+            OnPropertyChanged(args.PropertyName);
+            if (args.PropertyName == nameof(SelectedComponent))
+            {
+                UpdateSelectedComponentRecentMovements();
+                NotifySelectedComponentStateChanged();
+            }
+            if (args.PropertyName is nameof(Components) or nameof(AvailableComponents))
+                OnPropertyChanged(nameof(CanRecordMovement));
+            if (args.PropertyName is nameof(Components) or nameof(ComponentSearchText)
+                or nameof(ShowLowStockOnly) or nameof(SelectedComponentCategoryFilter)
+                or nameof(SelectedComponentLocationFilter) or nameof(SelectedComponentSortOption))
+            {
+                OnPropertyChanged(nameof(ComponentInventorySummary));
+                OnPropertyChanged(nameof(InventoryFilterSummary));
+                OnPropertyChanged(nameof(InventoryWorkspaceSummary));
+                OnPropertyChanged(nameof(InventoryEmptyMessage));
+            }
+        };
         _syncService = syncService;
 
         _store.Initialize();
@@ -58,23 +70,12 @@ public sealed class MainViewModel : ObservableObject
         _syncConfiguration = _store.GetSyncConfiguration();
         _statusMessage = _syncConfiguration.LastSyncMessage;
 
-        Components = [];
         LowStockComponents = [];
         Movements = [];
         OverviewLowStockComponents = [];
         OverviewRecentMovements = [];
         SelectedComponentRecentMovements = [];
         StorageLocations = [];
-        InventoryCategoryOptions = [];
-        InventoryLocationOptions = [];
-        InventorySortOptions = new ObservableCollection<string>(
-            [
-                SortUpdatedDescOption,
-                SortLowStockFirstOption,
-                SortNameAscOption,
-                SortQuantityDescOption,
-            ]
-        );
 
         Refresh();
         ScheduleAutoSync();
@@ -98,7 +99,7 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    public ObservableCollection<ComponentRecord> Components { get; }
+    public ObservableCollection<ComponentRecord> Components => Inventory.Components;
 
     public ObservableCollection<ComponentRecord> LowStockComponents { get; }
 
@@ -111,71 +112,17 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<StockMovementRecord> SelectedComponentRecentMovements { get; }
     public ObservableCollection<StorageLocationRecord> StorageLocations { get; }
 
-    public ObservableCollection<string> InventoryCategoryOptions { get; }
+    public ObservableCollection<string> InventoryCategoryOptions => Inventory.InventoryCategoryOptions;
 
-    public ObservableCollection<string> InventoryLocationOptions { get; }
+    public ObservableCollection<string> InventoryLocationOptions => Inventory.InventoryLocationOptions;
 
-    public ObservableCollection<string> InventorySortOptions { get; }
+    public ObservableCollection<string> InventorySortOptions => Inventory.InventorySortOptions;
 
-    public string ComponentSearchText
-    {
-        get => _componentSearchText;
-        set
-        {
-            if (SetProperty(ref _componentSearchText, value))
-            {
-                ApplyComponentFilter();
-            }
-        }
-    }
-
-    public bool ShowLowStockOnly
-    {
-        get => _showLowStockOnly;
-        set
-        {
-            if (SetProperty(ref _showLowStockOnly, value))
-            {
-                ApplyComponentFilter();
-            }
-        }
-    }
-
-    public string SelectedComponentCategoryFilter
-    {
-        get => _selectedComponentCategoryFilter;
-        set
-        {
-            if (SetProperty(ref _selectedComponentCategoryFilter, value))
-            {
-                ApplyComponentFilter();
-            }
-        }
-    }
-
-    public string SelectedComponentLocationFilter
-    {
-        get => _selectedComponentLocationFilter;
-        set
-        {
-            if (SetProperty(ref _selectedComponentLocationFilter, value))
-            {
-                ApplyComponentFilter();
-            }
-        }
-    }
-
-    public string SelectedComponentSortOption
-    {
-        get => _selectedComponentSortOption;
-        set
-        {
-            if (SetProperty(ref _selectedComponentSortOption, value))
-            {
-                ApplyComponentFilter();
-            }
-        }
-    }
+    public string ComponentSearchText { get => Inventory.ComponentSearchText; set => Inventory.ComponentSearchText = value; }
+    public bool ShowLowStockOnly { get => Inventory.ShowLowStockOnly; set => Inventory.ShowLowStockOnly = value; }
+    public string SelectedComponentCategoryFilter { get => Inventory.SelectedComponentCategoryFilter; set => Inventory.SelectedComponentCategoryFilter = value; }
+    public string SelectedComponentLocationFilter { get => Inventory.SelectedComponentLocationFilter; set => Inventory.SelectedComponentLocationFilter = value; }
+    public string SelectedComponentSortOption { get => Inventory.SelectedComponentSortOption; set => Inventory.SelectedComponentSortOption = value; }
 
     public bool IsBusy
     {
@@ -198,20 +145,9 @@ public sealed class MainViewModel : ObservableObject
         private set => SetProperty(ref _statusMessage, value);
     }
 
-    public ComponentRecord? SelectedComponent
-    {
-        get => _selectedComponent;
-        set
-        {
-            if (SetProperty(ref _selectedComponent, value))
-            {
-                UpdateSelectedComponentRecentMovements();
-                NotifySelectedComponentStateChanged();
-            }
-        }
-    }
+    public ComponentRecord? SelectedComponent { get => Inventory.SelectedComponent; set => Inventory.SelectedComponent = value; }
 
-    public IReadOnlyList<ComponentRecord> AvailableComponents => _allComponents;
+    public IReadOnlyList<ComponentRecord> AvailableComponents => Inventory.AvailableComponents;
 
     public ComponentRecord? FindActiveComponentBySku(string sku) => _inventoryEditing.FindActiveSku(sku);
 
@@ -226,7 +162,7 @@ public sealed class MainViewModel : ObservableObject
             {
                 Refresh();
                 var savedId = plan.AppendTarget?.Id ?? plan.Request.Draft.Id;
-                SelectedComponent = _allComponents.FirstOrDefault(component =>
+                SelectedComponent = AvailableComponents.FirstOrDefault(component =>
                     savedId is not null
                         ? component.Id == savedId
                         : component.Sku.Equals(
@@ -513,25 +449,7 @@ public sealed class MainViewModel : ObservableObject
     public void Refresh()
     {
         Dashboard = _store.GetDashboardSnapshot();
-        var components = _store.GetComponents();
-        var outboundTotals = _store.GetCumulativeOutboundQuantities();
-        _allComponents = components.Select(component => new ComponentRecord
-        {
-            Id = component.Id,
-            Sku = component.Sku,
-            Name = component.Name,
-            Category = component.Category,
-            PackageName = component.PackageName,
-            Location = component.Location,
-            Description = component.Description,
-            Quantity = component.Quantity,
-            MinStock = component.MinStock,
-            UpdatedAt = component.UpdatedAt,
-            Deleted = component.Deleted,
-            CumulativeOutboundQuantity = outboundTotals.GetValueOrDefault(component.Id),
-            Allocations = component.Allocations,
-            BaseUpdatedAt = component.BaseUpdatedAt,
-        }).ToArray();
+        Inventory.Refresh();
         ReplaceCollection(StorageLocations, _store.GetStorageLocations());
         ReplaceCollection(LowStockComponents, _store.GetLowStockComponents());
         ReplaceCollection(Movements, _store.GetMovements());
@@ -540,10 +458,9 @@ public sealed class MainViewModel : ObservableObject
             ? "尚未执行同步。"
             : SyncConfiguration.LastSyncMessage;
 
-        UpdateInventoryFilterOptions();
         UpdateOverviewCollections();
         ApplyMovementSelection();
-        ApplyComponentFilter();
+        UpdateSelectedComponentRecentMovements();
 
         OnPropertyChanged(nameof(CanRecordMovement));
         OnPropertyChanged(nameof(ComponentInventorySummary));
@@ -782,69 +699,6 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    private void ApplyComponentFilter()
-    {
-        IEnumerable<ComponentRecord> filtered = _allComponents;
-
-        if (ShowLowStockOnly)
-        {
-            filtered = filtered.Where(component => component.IsLowStock);
-        }
-
-        if (SelectedComponentCategoryFilter != AllCategoriesOption)
-        {
-            filtered = filtered.Where(component => CategoryFilterSemantics.SameCategory(component.Category, SelectedComponentCategoryFilter));
-        }
-
-        if (SelectedComponentLocationFilter != AllLocationsOption)
-        {
-            filtered = filtered.Where(component => component.Location == SelectedComponentLocationFilter);
-        }
-
-        if (!string.IsNullOrWhiteSpace(ComponentSearchText))
-        {
-            var query = ComponentSearchText.Trim();
-            filtered = filtered.Where(component => InventorySearch.Matches(component, query)
-                || CategoryFilterSemantics.MatchesSearch(component.Category, query));
-        }
-
-        filtered = SelectedComponentSortOption switch
-        {
-            SortLowStockFirstOption => filtered
-                .OrderBy(component => component.IsLowStock ? 0 : 1)
-                .ThenBy(component => component.Quantity - component.MinStock)
-                .ThenBy(component => component.Name),
-            SortNameAscOption => filtered.OrderBy(component => component.Name),
-            SortQuantityDescOption => filtered
-                .OrderByDescending(component => component.Quantity)
-                .ThenBy(component => component.Name),
-            _ => filtered.OrderByDescending(component => component.UpdatedAt),
-        };
-
-        ReplaceCollection(Components, filtered);
-        OnPropertyChanged(nameof(ComponentInventorySummary));
-        OnPropertyChanged(nameof(InventoryFilterSummary));
-        OnPropertyChanged(nameof(InventoryWorkspaceSummary));
-        OnPropertyChanged(nameof(InventoryEmptyMessage));
-
-        if (Components.Count == 0)
-        {
-            SelectedComponent = null;
-            return;
-        }
-
-        if (SelectedComponent is null)
-        {
-            SelectedComponent = Components[0];
-            return;
-        }
-
-        var currentSelection = Components.FirstOrDefault(component =>
-            component.Id == SelectedComponent.Id
-        );
-        SelectedComponent = currentSelection ?? Components[0];
-    }
-
     private void ApplyMovementSelection()
     {
         OnPropertyChanged(nameof(MovementFeedSummary));
@@ -870,53 +724,6 @@ public sealed class MainViewModel : ObservableObject
             movement.Id == SelectedMovement.Id
         );
         SelectedMovement = currentSelection ?? Movements[0];
-    }
-
-    private void UpdateInventoryFilterOptions()
-    {
-        var categoryOptions = CategoryFilterSemantics.Options(_allComponents.Select(component => component.Category));
-        ReplaceCollection(
-            InventoryCategoryOptions,
-            new[] { AllCategoriesOption }.Concat(categoryOptions)
-        );
-
-        if (_selectedComponentCategoryFilter != AllCategoriesOption)
-        {
-            var equivalentOption = categoryOptions.FirstOrDefault(option =>
-                CategoryFilterSemantics.SameCategory(option, _selectedComponentCategoryFilter));
-            if (equivalentOption is not null && !_selectedComponentCategoryFilter.Equals(equivalentOption, StringComparison.Ordinal))
-            {
-                _selectedComponentCategoryFilter = equivalentOption;
-                OnPropertyChanged(nameof(SelectedComponentCategoryFilter));
-            }
-        }
-        if (!InventoryCategoryOptions.Contains(_selectedComponentCategoryFilter, StringComparer.OrdinalIgnoreCase))
-        {
-            _selectedComponentCategoryFilter = AllCategoriesOption;
-            OnPropertyChanged(nameof(SelectedComponentCategoryFilter));
-        }
-
-        var locationOptions = _allComponents
-            .Select(component => component.Location)
-            .Where(location => !string.IsNullOrWhiteSpace(location))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(location => location, StringComparer.OrdinalIgnoreCase);
-        ReplaceCollection(
-            InventoryLocationOptions,
-            new[] { AllLocationsOption }.Concat(locationOptions)
-        );
-
-        if (!InventoryLocationOptions.Contains(_selectedComponentLocationFilter))
-        {
-            _selectedComponentLocationFilter = AllLocationsOption;
-            OnPropertyChanged(nameof(SelectedComponentLocationFilter));
-        }
-
-        if (!InventorySortOptions.Contains(_selectedComponentSortOption))
-        {
-            _selectedComponentSortOption = SortUpdatedDescOption;
-            OnPropertyChanged(nameof(SelectedComponentSortOption));
-        }
     }
 
     private void UpdateOverviewCollections()

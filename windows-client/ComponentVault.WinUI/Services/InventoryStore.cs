@@ -12,8 +12,9 @@ public sealed class InventoryStore
 {
     private static readonly object TimestampLock = new();
     private static long _lastTimestampMilliseconds;
-    private readonly string _databasePath;
-    internal string DatabasePath => _databasePath;
+    private readonly InventoryDatabase _database;
+    private readonly InventoryQueries _queries;
+    internal string DatabasePath { get; }
 
     public InventoryStore()
         : this(
@@ -28,146 +29,20 @@ public sealed class InventoryStore
 
     internal InventoryStore(string databasePath)
     {
-        var root = Path.GetDirectoryName(databasePath);
-        if (!string.IsNullOrWhiteSpace(root))
-        {
-            Directory.CreateDirectory(root);
-        }
-        _databasePath = databasePath;
+        DatabasePath = databasePath;
+        _database = new InventoryDatabase(databasePath, UtcNow);
+        _queries = new InventoryQueries(_database.OpenConnection);
     }
 
-    public void Initialize()
-    {
-        using var connection = OpenConnection();
-        CreatePreUpgradeBackupIfNeeded(connection);
-        using var transaction = connection.BeginTransaction();
+    public void Initialize() => _database.Initialize();
 
-        ExecuteSchema(connection);
-        EnsureDefaultSettings(connection);
-
-        transaction.Commit();
-    }
-
-    public DashboardSnapshot GetDashboardSnapshot()
-    {
-        using var connection = OpenConnection();
-
-        var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT
-                COUNT(*) AS component_count,
-                COALESCE(SUM(quantity), 0) AS total_units,
-                COALESCE(SUM(CASE WHEN quantity <= min_stock THEN 1 ELSE 0 END), 0) AS low_stock_count
-            FROM components
-            WHERE deleted = 0
-            """;
-
-        using var reader = command.ExecuteReader();
-        reader.Read();
-
-        return new DashboardSnapshot
-        {
-            ComponentCount = reader.GetInt32(0),
-            TotalUnits = reader.GetInt32(1),
-            LowStockCount = reader.GetInt32(2),
-            MovementCount = GetMovementCount(connection),
-        };
-    }
-
-    public IReadOnlyList<ComponentRecord> GetComponents()
-    {
-        using var connection = OpenConnection();
-        using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT
-                id,
-                sku,
-                name,
-                category,
-                package_name,
-                location,
-                COALESCE(description, '') AS description,
-                quantity,
-                min_stock,
-                updated_at,
-                deleted,
-                base_updated_at
-            FROM components
-            WHERE deleted = 0
-            ORDER BY updated_at DESC, name COLLATE NOCASE ASC
-            """;
-
-        using var reader = command.ExecuteReader();
-        var components = ReadComponents(reader);
-        reader.Close();
-        return AttachAllocations(connection, components);
-    }
-
-    public IReadOnlyList<ComponentRecord> GetLowStockComponents()
-    {
-        using var connection = OpenConnection();
-        using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT
-                id,
-                sku,
-                name,
-                category,
-                package_name,
-                location,
-                COALESCE(description, '') AS description,
-                quantity,
-                min_stock,
-                updated_at,
-                deleted,
-                base_updated_at
-            FROM components
-            WHERE deleted = 0 AND quantity <= min_stock
-            ORDER BY quantity ASC, updated_at DESC
-            """;
-
-        using var reader = command.ExecuteReader();
-        var components = ReadComponents(reader);
-        reader.Close();
-        return AttachAllocations(connection, components);
-    }
-
-    public IReadOnlyList<ComponentRecord> GetActiveComponentsForSelection()
-    {
-        return GetComponents();
-    }
-
-    public ComponentRecord? FindActiveComponentBySku(string sku)
-    {
-        if (string.IsNullOrWhiteSpace(sku)) return null;
-        using var connection = OpenConnection();
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id FROM components WHERE UPPER(sku)=UPPER($sku) AND deleted=0 LIMIT 1";
-        command.Parameters.AddWithValue("$sku", sku.Trim());
-        var id = command.ExecuteScalar() as string;
-        return id is null ? null : GetComponentById(connection, id);
-    }
-
-    public IReadOnlyList<StorageLocationRecord> GetStorageLocations(bool includeDeleted = false)
-    {
-        using var connection = OpenConnection();
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id,name,updated_at,deleted FROM storage_locations " +
-            (includeDeleted ? string.Empty : "WHERE deleted=0 ") + "ORDER BY id COLLATE NOCASE";
-        using var reader = command.ExecuteReader();
-        var result = new List<StorageLocationRecord>();
-        while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3) != 0));
-        return result;
-    }
-
-    public IReadOnlyList<ComponentAllocationRecord> GetAllocations(string componentId)
-    {
-        using var connection = OpenConnection();
-        return GetAllocations(connection, componentId);
-    }
+    public DashboardSnapshot GetDashboardSnapshot() => _queries.GetDashboardSnapshot();
+    public IReadOnlyList<ComponentRecord> GetComponents() => _queries.GetComponents();
+    public IReadOnlyList<ComponentRecord> GetLowStockComponents() => _queries.GetLowStockComponents();
+    public IReadOnlyList<ComponentRecord> GetActiveComponentsForSelection() => _queries.GetActiveComponentsForSelection();
+    public ComponentRecord? FindActiveComponentBySku(string sku) => _queries.FindActiveComponentBySku(sku);
+    public IReadOnlyList<StorageLocationRecord> GetStorageLocations(bool includeDeleted = false) => _queries.GetStorageLocations(includeDeleted);
+    public IReadOnlyList<ComponentAllocationRecord> GetAllocations(string componentId) => _queries.GetAllocations(componentId);
 
     public OperationResult SaveStorageLocation(string id, string name)
     {
@@ -176,7 +51,7 @@ public sealed class InventoryStore
 
     public OperationResult CreateStorageLocation(string id, string name)
     {
-        using var connection = OpenConnection();
+        using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
         var result = InsertNewLocation(connection, id, name);
         if (!result.IsSuccess) return result;
@@ -215,7 +90,7 @@ public sealed class InventoryStore
         var validation = ValidateStorageLocation(id, name);
         if (!validation.IsSuccess) return validation;
         var normalized = id.Trim();
-        using var connection = OpenConnection();
+        using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
         var updatedAt = UtcNow();
         using var update = connection.CreateCommand();
@@ -240,7 +115,7 @@ public sealed class InventoryStore
 
     public OperationResult DeleteStorageLocation(string id)
     {
-        using var connection = OpenConnection(); using var transaction = connection.BeginTransaction();
+        using var connection = _database.OpenConnection(); using var transaction = connection.BeginTransaction();
         using var positive = connection.CreateCommand();
         positive.CommandText = "SELECT COALESCE(SUM(quantity),0) FROM component_allocations WHERE location_id=$id";
         positive.Parameters.AddWithValue("$id", id);
@@ -254,40 +129,10 @@ public sealed class InventoryStore
         return OperationResult.Success("库位已软删除；零数量分配引用会保留。");
     }
 
-    public IReadOnlyList<StockMovementRecord> GetMovements(int limit = 200)
-    {
-        using var connection = OpenConnection();
-        using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT
-                m.id,
-                m.component_id,
-                COALESCE(c.sku, m.component_id) AS component_sku,
-                COALESCE(c.name, m.component_id) AS component_name,
-                m.movement_type,
-                m.quantity,
-                m.reason,
-                COALESCE(m.note, '') AS note,
-                m.happened_at,
-                m.updated_at,
-                m.deleted,
-                m.location_id,
-                m.destination_location_id
-            FROM stock_movements m
-            LEFT JOIN components c ON c.id = m.component_id
-            WHERE m.deleted = 0
-            ORDER BY m.happened_at DESC, m.updated_at DESC
-            LIMIT $limit
-            """;
-        command.Parameters.AddWithValue("$limit", limit);
-
-        using var reader = command.ExecuteReader();
-        return ReadMovements(reader);
-    }
+    public IReadOnlyList<StockMovementRecord> GetMovements(int limit = 200) => _queries.GetMovements(limit);
 
     public bool IsBatchReceiptCommitted(string receiptId)
-    {using var connection=OpenConnection();using var command=connection.CreateCommand();command.CommandText="SELECT EXISTS(SELECT 1 FROM batch_inbound_receipts WHERE receipt_id=$id)";command.Parameters.AddWithValue("$id",receiptId);return Convert.ToInt64(command.ExecuteScalar(),CultureInfo.InvariantCulture)!=0;}
+    {using var connection=_database.OpenConnection();using var command=connection.CreateCommand();command.CommandText="SELECT EXISTS(SELECT 1 FROM batch_inbound_receipts WHERE receipt_id=$id)";command.Parameters.AddWithValue("$id",receiptId);return Convert.ToInt64(command.ExecuteScalar(),CultureInfo.InvariantCulture)!=0;}
 
     public static IReadOnlyList<BatchInboundSummary> SummarizeBatchInbound(IEnumerable<BatchInboundLine> lines)=>lines
         .GroupBy(x=>(x.Sku.ToUpperInvariant(),x.LocationId),x=>x)
@@ -300,7 +145,7 @@ public sealed class InventoryStore
         if(request.Lines.Any(x=>!Guid.TryParse(x.ReceiptId,out _)||x.Quantity<=0||LcscPublicCatalog.NormalizeSku(x.Sku) is null||string.IsNullOrWhiteSpace(x.LocationId)))return OperationResult.Failure("批次包含无效 receipt、C 编号、数量或库位。");
         try
         {
-            using var connection=OpenConnection();using var transaction=connection.BeginTransaction();var committed=0;var skipped=0;
+            using var connection=_database.OpenConnection();using var transaction=connection.BeginTransaction();var committed=0;var skipped=0;
             foreach(var line in request.Lines)
             {
                 using(var receipt=connection.CreateCommand()){receipt.CommandText="SELECT EXISTS(SELECT 1 FROM batch_inbound_receipts WHERE receipt_id=$id)";receipt.Parameters.AddWithValue("$id",line.ReceiptId);if(Convert.ToInt64(receipt.ExecuteScalar(),CultureInfo.InvariantCulture)!=0){skipped++;continue;}}
@@ -332,7 +177,7 @@ public sealed class InventoryStore
 
         try
         {
-            using var connection = OpenConnection();
+            using var connection = _database.OpenConnection();
             using var transaction = connection.BeginTransaction();
             using var find = connection.CreateCommand();
             find.CommandText =
@@ -409,27 +254,12 @@ public sealed class InventoryStore
         }
     }
 
-    public IReadOnlyDictionary<string, long> GetCumulativeOutboundQuantities()
-    {
-        using var connection = OpenConnection();
-        using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT component_id, SUM(ABS(CAST(quantity AS INTEGER)))
-            FROM stock_movements
-            WHERE deleted = 0 AND LOWER(TRIM(movement_type)) = 'outbound'
-            GROUP BY component_id
-            """;
-        using var reader = command.ExecuteReader();
-        var totals = new Dictionary<string, long>(StringComparer.Ordinal);
-        while (reader.Read()) totals[reader.GetString(0)] = reader.GetInt64(1);
-        return totals;
-    }
+    public IReadOnlyDictionary<string, long> GetCumulativeOutboundQuantities() => _queries.GetCumulativeOutboundQuantities();
 
     public SyncConfiguration GetSyncConfiguration()
     {
-        using var connection = OpenConnection();
-        EnsureDefaultSettings(connection);
+        using var connection = _database.OpenConnection();
+        InventoryDatabase.EnsureDefaultSettings(connection);
         using var command = connection.CreateCommand();
         command.CommandText =
             """
@@ -469,8 +299,8 @@ public sealed class InventoryStore
         bool autoSyncEnabled
     )
     {
-        using var connection = OpenConnection();
-        EnsureDefaultSettings(connection);
+        using var connection = _database.OpenConnection();
+        InventoryDatabase.EnsureDefaultSettings(connection);
 
         var normalizedUrl = NormalizeServerBaseUrl(serverBaseUrl);
         var normalizedFallbackUrl = NormalizeServerBaseUrl(fallbackServerBaseUrl);
@@ -500,7 +330,7 @@ public sealed class InventoryStore
     {
         ValidateComponentDraft(draft);
 
-        using var connection = OpenConnection();
+        using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
 
         EnsureUniqueActiveSku(connection, draft.Sku.Trim(), draft.Id);
@@ -511,7 +341,7 @@ public sealed class InventoryStore
         }
 
         var componentId = draft.Id ?? $"cmp-{Guid.NewGuid():N}";
-        var existingComponent = draft.Id is null ? null : GetComponentById(connection, componentId);
+        var existingComponent = draft.Id is null ? null : InventoryQueries.GetComponentById(connection, componentId);
         var locationChanged = existingComponent is not null
             && !string.Equals(existingComponent.Location, draft.Location.Trim(), StringComparison.Ordinal);
         var updatedAt = UtcNow();
@@ -590,7 +420,7 @@ public sealed class InventoryStore
 
         EnqueueEntity(connection, "component", componentId, updatedAt);
 
-        var savedComponent = GetComponentById(connection, componentId)
+        var savedComponent = InventoryQueries.GetComponentById(connection, componentId)
             ?? throw new InvalidOperationException("保存后未找到元器件。");
         transaction.Commit();
         return savedComponent;
@@ -598,10 +428,10 @@ public sealed class InventoryStore
 
     public OperationResult SoftDeleteComponent(string componentId)
     {
-        using var connection = OpenConnection();
+        using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
 
-        if (!ComponentExists(connection, componentId))
+        if (!InventoryQueries.ComponentExists(connection, componentId))
         {
             return OperationResult.Failure("请先选择一个要删除的元器件。");
         }
@@ -637,7 +467,7 @@ public sealed class InventoryStore
 
         try
         {
-            using var connection = OpenConnection();
+            using var connection = _database.OpenConnection();
             using var transaction = connection.BeginTransaction();
             using (var location = connection.CreateCommand())
             {
@@ -651,7 +481,7 @@ public sealed class InventoryStore
             var validated = new List<(ComponentRecord Component, int Quantity)>();
             foreach (var line in request.Lines)
             {
-                var component = GetComponentById(connection, line.ComponentId);
+                var component = InventoryQueries.GetComponentById(connection, line.ComponentId);
                 if (component is null || component.Deleted)
                     return OperationResult.Failure("选中的元器件已不存在，请重新核对。");
                 if (component.UpdatedAt != line.ExpectedUpdatedAt)
@@ -680,10 +510,10 @@ public sealed class InventoryStore
     {
         ValidateMovementDraft(draft);
 
-        using var connection = OpenConnection();
+        using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
 
-        var component = GetComponentById(connection, draft.ComponentId);
+        var component = InventoryQueries.GetComponentById(connection, draft.ComponentId);
         if (component is null || component.Deleted)
         {
             return OperationResult.Failure("请先选择一个可用元器件。");
@@ -789,7 +619,7 @@ public sealed class InventoryStore
             return BomConfirmResult.Failure("BOM 确认行包含重复库存项。");
         }
 
-        using var connection = OpenConnection();
+        using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
         if (BomReleaseExists(connection, request.ReleaseId))
         {
@@ -805,7 +635,7 @@ public sealed class InventoryStore
         var current = new Dictionary<string, ComponentRecord>(StringComparer.Ordinal);
         foreach (var line in request.Lines)
         {
-            var component = GetComponentById(connection, line.ComponentId);
+            var component = InventoryQueries.GetComponentById(connection, line.ComponentId);
             if (component is null || component.Deleted)
             {
                 transaction.Rollback();
@@ -876,7 +706,7 @@ public sealed class InventoryStore
     {
         if (string.IsNullOrWhiteSpace(request.Fingerprint) || request.Items.Count == 0)
             return OperationResult.Failure("迁移预览为空或缺少文件指纹。");
-        using var connection = OpenConnection();
+        using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
         using (var duplicateFile = connection.CreateCommand())
         {
@@ -975,7 +805,7 @@ public sealed class InventoryStore
 
     public SyncEnvelope CreateSyncEnvelope()
     {
-        using var connection = OpenConnection();
+        using var connection = _database.OpenConnection();
         var settings = GetSyncConfiguration();
         var queuedEntities = GetQueuedEntities(connection);
 
@@ -1028,7 +858,7 @@ public sealed class InventoryStore
         if (string.IsNullOrWhiteSpace(identity.ServerId) || string.IsNullOrWhiteSpace(identity.AccountId))
             return "服务器无法确认账户身份。请先升级服务器；本地库存和同步进度已保留。";
 
-        using var connection = OpenConnection();
+        using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
         if (!StoredSyncConfigurationMatches(connection, settings))
             return "同步期间服务器配置已变化，请重试。";
@@ -1070,7 +900,7 @@ public sealed class InventoryStore
             throw new InvalidOperationException("同步成功结果必须包含拉取数据。");
         }
 
-        using var connection = OpenConnection();
+        using var connection = _database.OpenConnection();
         using var transaction = connection.BeginTransaction();
 
         if (!StoredServerMatches(connection, expectedServerBaseUrl)
@@ -1135,261 +965,8 @@ public sealed class InventoryStore
 
     public void UpdateSyncStatus(string message)
     {
-        using var connection = OpenConnection();
+        using var connection = _database.OpenConnection();
         UpdateStoredSyncStatus(connection, null, message, preserveTimestamp: true);
-    }
-
-    private SqliteConnection OpenConnection()
-    {
-        var connection = new SqliteConnection($"Data Source={_databasePath}");
-        connection.Open();
-
-        using var pragma = connection.CreateCommand();
-        pragma.CommandText = "PRAGMA foreign_keys = ON";
-        pragma.ExecuteNonQuery();
-
-        return connection;
-    }
-
-    private void CreatePreUpgradeBackupIfNeeded(SqliteConnection connection)
-    {
-        using var check = connection.CreateCommand();
-        check.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='components'";
-        if (Convert.ToInt32(check.ExecuteScalar(), CultureInfo.InvariantCulture) == 0) return;
-        check.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='component_allocations'";
-        if (Convert.ToInt32(check.ExecuteScalar(), CultureInfo.InvariantCulture) != 0) return;
-        var directory = Path.GetDirectoryName(_databasePath)!;
-        var backupPath = Path.Combine(directory, $"pre-inventory-protocol1-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.db");
-        using var destination = new SqliteConnection($"Data Source={backupPath}");
-        destination.Open();
-        connection.BackupDatabase(destination);
-    }
-
-    private static void ExecuteSchema(SqliteConnection connection)
-    {
-        var needsLegacyMigration = TableExists(connection, "components") && !TableExists(connection, "component_allocations");
-        var statements = new[]
-        {
-            """
-            CREATE TABLE IF NOT EXISTS components (
-                id TEXT PRIMARY KEY,
-                sku TEXT NOT NULL,
-                name TEXT NOT NULL,
-                category TEXT NOT NULL,
-                package_name TEXT NOT NULL,
-                location TEXT NOT NULL,
-                description TEXT,
-                quantity INTEGER NOT NULL CHECK (quantity >= 0),
-                min_stock INTEGER NOT NULL CHECK (min_stock >= 0),
-                updated_at TEXT NOT NULL,
-                deleted INTEGER NOT NULL DEFAULT 0
-            )
-            """,
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_components_sku_active
-            ON components(sku)
-            WHERE deleted = 0
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS stock_movements (
-                id TEXT PRIMARY KEY,
-                component_id TEXT NOT NULL,
-                movement_type TEXT NOT NULL,
-                quantity INTEGER NOT NULL,
-                reason TEXT NOT NULL,
-                note TEXT,
-                happened_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                deleted INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (component_id) REFERENCES components(id)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS storage_locations (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                deleted INTEGER NOT NULL DEFAULT 0
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS component_allocations (
-                component_id TEXT NOT NULL,
-                location_id TEXT NOT NULL,
-                quantity INTEGER NOT NULL CHECK(quantity >= 0),
-                PRIMARY KEY(component_id, location_id),
-                FOREIGN KEY(component_id) REFERENCES components(id),
-                FOREIGN KEY(location_id) REFERENCES storage_locations(id)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS batch_inbound_receipts (
-                receipt_id TEXT PRIMARY KEY,
-                committed_at TEXT NOT NULL
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS sync_queue (
-                entity_type TEXT NOT NULL,
-                entity_id TEXT NOT NULL,
-                entity_updated_at TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (entity_type, entity_id)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS sync_settings (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                device_id TEXT NOT NULL,
-                server_base_url TEXT NOT NULL DEFAULT '',
-                fallback_server_base_url TEXT NOT NULL DEFAULT '',
-                api_token TEXT NOT NULL DEFAULT '',
-                auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
-                last_sync_cursor INTEGER,
-                bound_server_id TEXT NOT NULL DEFAULT '',
-                bound_account_id TEXT NOT NULL DEFAULT '',
-                last_synced_at TEXT,
-                last_sync_message TEXT NOT NULL DEFAULT '尚未同步。'
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS bom_consumption_batches (
-                batch_id TEXT PRIMARY KEY,
-                release_id TEXT NOT NULL UNIQUE,
-                project_name TEXT NOT NULL,
-                batch_quantity INTEGER NOT NULL CHECK (batch_quantity > 0),
-                source_fingerprint TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS component_hub_imports (
-                fingerprint TEXT PRIMARY KEY,
-                imported_count INTEGER NOT NULL CHECK (imported_count >= 0),
-                created_at TEXT NOT NULL
-            )
-            """,
-        };
-
-        foreach (var statement in statements)
-        {
-            using var command = connection.CreateCommand();
-            command.CommandText = statement;
-            command.ExecuteNonQuery();
-        }
-
-        EnsureColumnExists(connection, "sync_settings", "last_sync_cursor", "INTEGER");
-        EnsureColumnExists(connection, "sync_settings", "fallback_server_base_url", "TEXT NOT NULL DEFAULT ''");
-        EnsureColumnExists(connection, "sync_settings", "bound_server_id", "TEXT NOT NULL DEFAULT ''");
-        EnsureColumnExists(connection, "sync_settings", "bound_account_id", "TEXT NOT NULL DEFAULT ''");
-        EnsureColumnExists(connection, "components", "base_updated_at", "TEXT");
-        EnsureColumnExists(connection, "stock_movements", "location_id", "TEXT");
-        EnsureColumnExists(connection, "stock_movements", "destination_location_id", "TEXT");
-        if (needsLegacyMigration) MigrateLegacyAllocations(connection);
-    }
-
-    private static bool TableExists(SqliteConnection connection, string name)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=$name";
-        command.Parameters.AddWithValue("$name", name);
-        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0;
-    }
-
-    private static void MigrateLegacyAllocations(SqliteConnection connection)
-    {
-        var now = UtcNow();
-        using var locations = connection.CreateCommand();
-        locations.CommandText =
-            "INSERT OR IGNORE INTO storage_locations(id,name,updated_at,deleted) " +
-            "SELECT CASE WHEN TRIM(location)='' THEN '__unassigned__' ELSE TRIM(location) END, " +
-            "CASE WHEN TRIM(location)='' THEN '未分配' ELSE TRIM(location) END, $now, 0 FROM components";
-        locations.Parameters.AddWithValue("$now", now);
-        locations.ExecuteNonQuery();
-        using var allocations = connection.CreateCommand();
-        allocations.CommandText =
-            "INSERT OR IGNORE INTO component_allocations(component_id,location_id,quantity) " +
-            "SELECT id, CASE WHEN TRIM(location)='' THEN '__unassigned__' ELSE TRIM(location) END, quantity FROM components";
-        allocations.ExecuteNonQuery();
-        using var baselines = connection.CreateCommand();
-        baselines.CommandText = "UPDATE components SET base_updated_at=updated_at WHERE base_updated_at IS NULL";
-        baselines.ExecuteNonQuery();
-        using var queueComponents = connection.CreateCommand();
-        queueComponents.CommandText =
-            "INSERT OR IGNORE INTO sync_queue(entity_type,entity_id,entity_updated_at,created_at) SELECT 'component',id,updated_at,$now FROM components";
-        queueComponents.Parameters.AddWithValue("$now", now);
-        queueComponents.ExecuteNonQuery();
-        using var queueLocations = connection.CreateCommand();
-        queueLocations.CommandText =
-            "INSERT OR IGNORE INTO sync_queue(entity_type,entity_id,entity_updated_at,created_at) SELECT 'storage_location',id,updated_at,$now FROM storage_locations";
-        queueLocations.Parameters.AddWithValue("$now", now);
-        queueLocations.ExecuteNonQuery();
-    }
-
-    private static void EnsureColumnExists(
-        SqliteConnection connection,
-        string tableName,
-        string columnName,
-        string columnType
-    )
-    {
-        using var inspect = connection.CreateCommand();
-        inspect.CommandText = $"PRAGMA table_info({tableName})";
-        using var reader = inspect.ExecuteReader();
-        while (reader.Read())
-        {
-            if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-        }
-
-        reader.Close();
-        using var alter = connection.CreateCommand();
-        alter.CommandText = $"ALTER TABLE {tableName} ADD COLUMN {columnName} {columnType}";
-        alter.ExecuteNonQuery();
-    }
-
-    private static void EnsureDefaultSettings(SqliteConnection connection)
-    {
-        using var insert = connection.CreateCommand();
-        insert.CommandText =
-            """
-            INSERT INTO sync_settings (
-                id,
-                device_id,
-                server_base_url,
-                fallback_server_base_url,
-                api_token,
-                auto_sync_enabled,
-                last_synced_at,
-                last_sync_message
-            )
-            VALUES (
-                1,
-                $device_id,
-                '',
-                '',
-                '',
-                0,
-                NULL,
-                '尚未同步。'
-            )
-            ON CONFLICT(id) DO NOTHING
-            """;
-        insert.Parameters.AddWithValue(
-            "$device_id",
-            $"windows-{Environment.MachineName.ToLowerInvariant()}"
-        );
-        insert.ExecuteNonQuery();
-    }
-
-    private static int GetMovementCount(SqliteConnection connection)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText =
-            "SELECT COUNT(*) FROM stock_movements WHERE deleted = 0";
-        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     private static bool BomReleaseExists(SqliteConnection connection, string releaseId)
@@ -1408,144 +985,6 @@ public sealed class InventoryStore
         return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
     }
 
-    private static IReadOnlyList<ComponentRecord> ReadComponents(SqliteDataReader reader)
-    {
-        var components = new List<ComponentRecord>();
-        while (reader.Read())
-        {
-            components.Add(
-                new ComponentRecord
-                {
-                    Id = reader.GetString(0),
-                    Sku = reader.GetString(1),
-                    Name = reader.GetString(2),
-                    Category = reader.GetString(3),
-                    PackageName = reader.GetString(4),
-                    Location = reader.GetString(5),
-                    Description = reader.GetString(6),
-                    Quantity = reader.GetInt32(7),
-                    MinStock = reader.GetInt32(8),
-                    UpdatedAt = reader.GetString(9),
-                    Deleted = reader.GetInt32(10) == 1,
-                    BaseUpdatedAt = reader.IsDBNull(11) ? null : reader.GetString(11),
-                }
-            );
-        }
-
-        return components;
-    }
-
-    private static IReadOnlyList<StockMovementRecord> ReadMovements(SqliteDataReader reader)
-    {
-        var movements = new List<StockMovementRecord>();
-        while (reader.Read())
-        {
-            movements.Add(
-                new StockMovementRecord
-                {
-                    Id = reader.GetString(0),
-                    ComponentId = reader.GetString(1),
-                    ComponentSku = reader.GetString(2),
-                    ComponentName = reader.GetString(3),
-                    MovementType = reader.GetString(4),
-                    Quantity = reader.GetInt32(5),
-                    Reason = reader.GetString(6),
-                    Note = reader.GetString(7),
-                    HappenedAt = reader.GetString(8),
-                    UpdatedAt = reader.GetString(9),
-                    Deleted = reader.GetInt32(10) == 1,
-                    LocationId = reader.IsDBNull(11) ? null : reader.GetString(11),
-                    DestinationLocationId = reader.IsDBNull(12) ? null : reader.GetString(12),
-                }
-            );
-        }
-
-        return movements;
-    }
-
-    private ComponentRecord GetComponentById(string componentId)
-    {
-        using var connection = OpenConnection();
-        var component = GetComponentById(connection, componentId);
-        return component ?? throw new InvalidOperationException("保存后未找到对应元器件。");
-    }
-
-    private static ComponentRecord? GetComponentById(SqliteConnection connection, string componentId)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT
-                id,
-                sku,
-                name,
-                category,
-                package_name,
-                location,
-                COALESCE(description, '') AS description,
-                quantity,
-                min_stock,
-                updated_at,
-                deleted,
-                base_updated_at
-            FROM components
-            WHERE id = $id
-            """;
-        command.Parameters.AddWithValue("$id", componentId);
-
-        using var reader = command.ExecuteReader();
-        ComponentRecord? component = reader.Read()
-            ? new ComponentRecord
-            {
-                Id = reader.GetString(0),
-                Sku = reader.GetString(1),
-                Name = reader.GetString(2),
-                Category = reader.GetString(3),
-                PackageName = reader.GetString(4),
-                Location = reader.GetString(5),
-                Description = reader.GetString(6),
-                Quantity = reader.GetInt32(7),
-                MinStock = reader.GetInt32(8),
-                UpdatedAt = reader.GetString(9),
-                Deleted = reader.GetInt32(10) == 1,
-                BaseUpdatedAt = reader.IsDBNull(11) ? null : reader.GetString(11),
-            }
-            : null;
-        reader.Close();
-        return component is null ? null : CloneComponent(component, GetAllocations(connection, component.Id));
-    }
-
-    private static bool ComponentExists(SqliteConnection connection, string componentId)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM components WHERE id = $id";
-        command.Parameters.AddWithValue("$id", componentId);
-        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
-    }
-
-    private static IReadOnlyList<ComponentAllocationRecord> GetAllocations(SqliteConnection connection, string componentId)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT component_id,location_id,quantity FROM component_allocations WHERE component_id=$id ORDER BY location_id COLLATE NOCASE";
-        command.Parameters.AddWithValue("$id", componentId);
-        using var reader = command.ExecuteReader();
-        var result = new List<ComponentAllocationRecord>();
-        while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetInt32(2)));
-        return result;
-    }
-
-    private static IReadOnlyList<ComponentRecord> AttachAllocations(SqliteConnection connection, IReadOnlyList<ComponentRecord> components) =>
-        components.Select(component => CloneComponent(component, GetAllocations(connection, component.Id))).ToArray();
-
-    private static ComponentRecord CloneComponent(ComponentRecord component, IReadOnlyList<ComponentAllocationRecord> allocations) => new()
-    {
-        Id = component.Id, Sku = component.Sku, Name = component.Name, Category = component.Category,
-        PackageName = component.PackageName, Location = component.Location, Description = component.Description,
-        Quantity = component.Quantity, MinStock = component.MinStock, UpdatedAt = component.UpdatedAt,
-        Deleted = component.Deleted, CumulativeOutboundQuantity = component.CumulativeOutboundQuantity,
-        BaseUpdatedAt = component.BaseUpdatedAt, Allocations = allocations,
-    };
-
     private static int GetAllocationQuantity(SqliteConnection connection, string componentId, string locationId)
     {
         using var command = connection.CreateCommand();
@@ -1557,7 +996,7 @@ public sealed class InventoryStore
 
     private static IReadOnlyList<(string LocationId, int Quantity)> DeductAllocations(SqliteConnection connection, string componentId, int required)
     {
-        var allocations = GetAllocations(connection, componentId).Where(item => item.Quantity > 0).OrderBy(item => item.LocationId, StringComparer.Ordinal).ToArray();
+        var allocations = InventoryQueries.GetAllocations(connection, componentId).Where(item => item.Quantity > 0).OrderBy(item => item.LocationId, StringComparer.Ordinal).ToArray();
         var remaining = required;
         var deductions = new List<(string, int)>();
         foreach (var allocation in allocations)
@@ -1873,7 +1312,7 @@ public sealed class InventoryStore
             PackageName = dto.PackageName, Location = dto.Location, Description = dto.Description,
             Quantity = dto.Quantity, MinStock = dto.MinStock, UpdatedAt = dto.UpdatedAt,
             Deleted = dto.Deleted, BaseUpdatedAt = dto.BaseUpdatedAt,
-            Allocations = GetAllocations(connection, componentId).Select(item => new SyncAllocationDto
+            Allocations = InventoryQueries.GetAllocations(connection, componentId).Select(item => new SyncAllocationDto
             {
                 LocationId = item.LocationId, Quantity = item.Quantity,
             }).ToArray(),
