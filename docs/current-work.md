@@ -10,6 +10,7 @@
 - 追加有限额度核对：提交 f8d75e7 的 CI 39105176493 中 Windows、服务端测试、容器、Web、版本检查成功；Android inventory regressions 共 326 项，325 通过，仅新增 BluetoothLabelPrintUiTest.positionSheetCanSelectAFieldWithoutVisiblePrintContent 失败（Left (mm) 不可见）。在本地允许缓存访问后，补 performScrollTo 的单项复测仍失败，已撤回无效尝试；不删除或放宽断言，不标记通过，不发布 dev.16。日志 .tmp/dev16-ci-fix.log。下次优先检查空二维码位置面板的实际可见区域与测试渲染条件，确认真实原因后修复；不要重复无效的仅加滚动尝试。
 - 后续有限额度定位：仅加滚动、统一 Native 渲染均不能解决失败。控件诊断显示 Left (mm) 已生成但位于 (16,511)-(304,575)，仍在屏幕可见区域外。标签编辑 ModalBottomSheet 改为 skipPartiallyExpanded=true，直接完全展开；保留元素选择和可见性断言并滚动到字段。关闭本地异常增量缓存后，原失败单项复测通过（.tmp/dev16-sheet-clean-compile.log，BUILD SUCCESSFUL）。此结果只证明定向自动化通过，尚未进行新包实机验收；等待本提交 CI 后继续候选安装，不发布正式版。
 - 最新确认：修复提交 9a1475d 的 GitHub CI [39105879440](https://github.com/Rafael-ban/Component_Manager/actions/runs/39105879440) 全部成功；签名候选构建 [39105880696](https://github.com/Rafael-ban/Component_Manager/actions/runs/39105880696) 成功。dev.16 尚未公开发布，也尚未安装到手机。后续从该构建取产物并执行上述实机验收；不要再使用 f8d75e7 的旧候选。用户要求保留 5% 应急额度，本轮到此收尾。
+- 追加最小实机验收：从成功构建 39105880696 下载 APK 产物 12128062551，adb install -r 覆盖安装成功，版本 dev.16 / 708016。首页升级前后同为 26/810/29。经库存→标签工具→二维码模板→40×60→位置→高级尺寸，四个尺寸字段和完成按钮实际可见，切换文字元素坐标正常；关闭返回、重启正常。只做读取与标签预览，未改库存、未打印、未修改充电常亮；BOM/采购/库位二维码的实机验收仍待后续。按用户要求启动 dev 发布，更新日志明确有限验收范围。
 # 2026-10-18 Android 核心模块化（0.7.8-dev.15）
 
 - 起点 master `98be826`。按用户顺序，先完成 Android 模块化及实机验收，之后分析公开 Issues，最后评估跨设备优化文档。
