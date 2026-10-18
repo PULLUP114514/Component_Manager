@@ -17,7 +17,15 @@
 - `Services/InventoryDatabase.cs` 负责连接、原有 schema 初始化、迁移和迁移前备份；`Services/InventoryQueries.cs` 负责只读查询和实体映射，事务内部读取继续复用写入连接。未更改数据库路径、表结构、同步协议，也不维护第二套库存数据库。
 - Windows `StorageLocationDisplay` 在读取后补充显示名称，Android 界面从共享库位列表解析名称；筛选、保存和同步仍使用稳定 ID。缺失历史名称时回退原值，不修改用户已有标识。同名 Windows 库位筛选项附带 ID 区分。
 - Windows 删除库位只检查活动元件的正库存分配；已删除元件的历史分配、流水与同步删除标记继续保留。同步已删除元件的历史分配不会重新激活已删除库位。
-- 主 ViewModel 的概览、流水、同步以及 Store 的同步协调仍待后续逐模块拆分；本阶段没有把全部代码重写。
+- Windows 核心链路拆分已在 dev.14 收尾；功能页面与业务规则继续沿用现有实现，不代表全部客户端已重写。
+
+### Android 功能模块边界
+
+- `InventoryViewModel` 保留 UI 入口、协程生命周期、状态发布和保存后刷新顺序。`InventoryStateProjector` 负责筛选/列表/详情/概览投影；`MovementBatchCoordinator` 负责扫码队列、库存重载后的复核及数量/库位校验。同步和本地操作共用同一个状态重载入口。
+- `ComponentSaveCoordinator` 负责导入查重、追加确认和失败重试，应用壳只处理页面与标签入口。`BomImportOperations` 负责文件解析与只读匹配预览，`InventoryBackupOperations` 负责文档 URI 读写；业务提交继续经 Repository。
+- `InventoryRepository` 保留配置、读取和预览入口；`InventoryWriteService` 管理元件、库位、出入库、批量入库和转移事务，`InventoryImportCatalog` 管理识别、官方查询、学习映射与查询缓存。学习映射写入复用元件保存的同一个 SQLite 事务。
+- `InventorySyncService` 管理网络交换、账户绑定、上传快照、拉取和队列确认；与保存同步配置共用配置锁。账户检查仍在上传前，拉取及队列确认同事务提交，随后保存游标。`InventoryPreferenceKeys` 集中共享键值，不改变已有设置文件或键名。
+- `InventoryWorkbookService` 管理备份预览、恢复和恢复失败时的图片清理；`BomReleaseCommitter` 和 `ComponentHubImporter` 管理各自提交。`InventorySqlOps` 只提供接受现有连接的分配/队列辅助，不另开事务。数据库文件、schema v5、升级备份和历史数据格式保持不变。
 
 Android 导入页创建库位统一调用主 ViewModel，完成后刷新共享库存状态。完整编辑器在应用根节点使用同一组合位置，紧凑全屏与宽屏对话框切换不另建草稿状态。完整编辑器的文字、数量、库位以及导入来源使用 Compose 保存状态；待提交扫码批次通过 `SavedStateHandle` 保存用户输入，重建时重新读取当前库存，恢复到复核状态，不自动执行库存写入。取消或成功后清理草稿，提交失败保留供修正。已采纳的本地图片随编辑会话恢复；明确取消（包括系统返回）才删除会话新建图片，保存成功保留采用的图片。系统保存状态恢复不等同于长期草稿备份，不保证强制停止或设备重启恢复；提交期间中断应先核对记录，避免手动重复入库/出库。
 

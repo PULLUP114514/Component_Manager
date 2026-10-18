@@ -13,12 +13,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.res.stringResource
 import com.componentvault.android.R
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.componentvault.android.data.LabelPrintQueueCodec
 import com.componentvault.android.data.M1TestPaperProfile
-import com.componentvault.android.data.ExistingImportTarget
 import com.componentvault.android.model.ComponentDraft
 import com.componentvault.android.model.ComponentRecord
 import com.componentvault.android.model.ComponentImportCandidate
@@ -48,12 +43,6 @@ private val LabelSeedSaver = Saver<ComponentLabelSeed?, String>(
     restore = { json -> json.takeIf(String::isNotEmpty)?.let { LabelPrintQueueCodec.decodeSeed(JSONObject(it)) } },
 )
 
-private data class PendingSingleAppend(
-    val target: ExistingImportTarget,
-    val draft: ComponentDraft,
-    val onComplete: (OperationResult) -> Unit,
-)
-
 @Composable
 fun ComponentVaultApp(
     viewModel: InventoryViewModel,
@@ -62,6 +51,16 @@ fun ComponentVaultApp(
     val layoutMode = rememberInventoryLayoutMode()
     val strings = runtimeComponentVaultStrings()
     val snackbarHostState = remember { SnackbarHostState() }
+    val componentSaveCoordinator = remember(viewModel) {
+        ComponentSaveCoordinator(
+            saveComponent = viewModel::saveComponent,
+            saveImportedComponent = { draft, candidate, complete ->
+                viewModel.saveImportedComponent(draft, candidate, complete)
+            },
+            findExistingImportTarget = viewModel::findExistingImportTarget,
+            appendImportedStock = viewModel::appendImportedStock,
+        )
+    }
     var lastHandledStatusMessage by rememberSaveable { mutableStateOf(uiState.statusMessage) }
 
     LaunchedEffect(uiState.statusMessage) {
@@ -103,8 +102,6 @@ fun ComponentVaultApp(
     var labelToolTemplate by rememberSaveable { mutableStateOf(LabelToolTemplate.Component) }
     var labelToolPaper by remember { mutableStateOf<M1TestPaperProfile?>(null) }
     var labelPrintFromToolPicker by rememberSaveable { mutableStateOf(false) }
-    var pendingSingleAppend by remember { mutableStateOf<PendingSingleAppend?>(null) }
-    var singleAppendBusy by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.movements.batchSession.totalScans) {
         val totalScans = uiState.movements.batchSession.totalScans
@@ -203,22 +200,20 @@ fun ComponentVaultApp(
         generateLabelAfterSave: Boolean,
         onComplete: (OperationResult) -> Unit,
     ) {
-        val handleResult: (OperationResult) -> Unit = { result ->
-            onComplete(result)
-            if (result.isSuccess) {
+        componentSaveCoordinator.submitEditorDraft(
+            draft = draft,
+            importedDraft = editingComponent == null && componentEditorInitialDraft != null,
+            importCandidate = componentEditorImportCandidate,
+            onComplete = onComplete,
+            onSaved = { result ->
                 closeComponentEditor()
                 revealSavedComponent(result)
                 if (generateLabelAfterSave) {
                     labelPrintSeed = draft.toLabelSeed()
                     labelPrintVisible = true
                 }
-            }
-        }
-        if (editingComponent == null && componentEditorInitialDraft != null) {
-            viewModel.saveImportedComponent(draft, componentEditorImportCandidate, handleResult)
-        } else {
-            viewModel.saveComponent(draft, handleResult)
-        }
+            },
+        )
     }
 
     fun submitImportedDraft(
@@ -226,30 +221,11 @@ fun ComponentVaultApp(
         sourceCandidate: ComponentImportCandidate,
         onComplete: (OperationResult) -> Unit,
     ) {
-        if (draft.id != null) {
-            viewModel.saveImportedComponent(draft, sourceCandidate, onComplete)
-            return
-        }
-        if (singleAppendBusy || pendingSingleAppend != null) return
-        singleAppendBusy = true
-        viewModel.findExistingImportTarget(draft.sku, onError = { error ->
-            singleAppendBusy = false
-            onComplete(error)
-        }) { existing ->
-            if (existing != null) {
-                pendingSingleAppend = PendingSingleAppend(existing, draft, onComplete)
-                singleAppendBusy = false
-            } else {
-                viewModel.saveImportedComponent(draft, sourceCandidate) { result ->
-                    singleAppendBusy = false
-                    onComplete(result)
-                    if (result.isSuccess) {
-                        closeImportSurface(); revealSavedComponent(result)
-                        labelPrintSeed = draft.toLabelSeed()
-                        labelPrintVisible = true
-                    }
-                }
-            }
+        componentSaveCoordinator.submitImportedDraft(draft, sourceCandidate, onComplete) { result ->
+            closeImportSurface()
+            revealSavedComponent(result)
+            labelPrintSeed = draft.toLabelSeed()
+            labelPrintVisible = true
         }
     }
 
@@ -713,38 +689,14 @@ fun ComponentVaultApp(
                 },
             )
         }
-        pendingSingleAppend?.let { pending ->
-            val total = runCatching { Math.addExact(pending.target.quantity, pending.draft.quantity) }.getOrNull()
-            AlertDialog(
-                onDismissRequest = { if (!singleAppendBusy) pendingSingleAppend = null },
-                title = { Text(androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.single_append_title)) },
-                text = { Text(if (total == null) androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.single_append_overflow)
-                    else androidx.compose.ui.res.stringResource(
-                        com.componentvault.android.R.string.single_append_detail,
-                        pending.target.quantity,
-                        pending.draft.quantity,
-                        total,
-                        displayLocationName(
-                            pending.draft.location,
-                            uiState.inventory.storageLocations,
-                            vaultStrings().common.labelNotConfigured,
-                        ),
-                    )) },
-                confirmButton = { Button(onClick = {
-                    if (singleAppendBusy || total == null || pending.draft.quantity <= 0) return@Button
-                    singleAppendBusy = true
-                    viewModel.appendImportedStock(pending.target, pending.draft.quantity, pending.draft.location) { result ->
-                        singleAppendBusy = false; pending.onComplete(result)
-                        if (result.isSuccess) { pendingSingleAppend = null; closeImportSurface(); revealSavedComponent(result) }
-                    }
-                }, enabled = !singleAppendBusy && total != null && pending.draft.quantity > 0) {
-                    Text(androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.single_append_confirm))
-                } },
-                dismissButton = { TextButton(onClick = { pendingSingleAppend = null }, enabled = !singleAppendBusy) {
-                    Text(androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.action_cancel))
-                } },
-            )
-        }
+        SingleAppendConfirmationDialog(
+            coordinator = componentSaveCoordinator,
+            storageLocations = uiState.inventory.storageLocations,
+            onSaved = { result ->
+                closeImportSurface()
+                revealSavedComponent(result)
+            },
+        )
     }
 }
 

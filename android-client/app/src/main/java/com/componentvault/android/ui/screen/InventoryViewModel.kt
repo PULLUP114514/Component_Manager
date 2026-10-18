@@ -13,9 +13,7 @@ import androidx.lifecycle.viewModelScope
 import com.componentvault.android.R
 import com.componentvault.android.data.InventoryRepository
 import com.componentvault.android.data.BatchTransferLine
-import com.componentvault.android.data.InventoryWorkbookCodec
 import com.componentvault.android.data.bom.BomParseResult
-import com.componentvault.android.data.bom.BomParser
 import com.componentvault.android.data.bom.BomReleasePreview
 import com.componentvault.android.data.bom.BomReleaseResult
 import com.componentvault.android.data.bom.BomSheet
@@ -23,12 +21,7 @@ import com.componentvault.android.model.AppPreferences
 import com.componentvault.android.model.ComponentDraft
 import com.componentvault.android.model.ComponentImportCandidate
 import com.componentvault.android.model.ComponentRecord
-import com.componentvault.android.model.officialRclSpecificationSummary
-import com.componentvault.android.model.DashboardSnapshot
-import com.componentvault.android.model.InventoryDetailUiState
 import com.componentvault.android.model.InventoryFiltersUiState
-import com.componentvault.android.model.InventoryListItemUiState
-import com.componentvault.android.model.InventoryListUiState
 import com.componentvault.android.model.InventoryScreenUiState
 import com.componentvault.android.model.InventorySortOption
 import com.componentvault.android.model.InventoryStockFilter
@@ -42,15 +35,12 @@ import com.componentvault.android.model.MovementScanResolutionUiState
 import com.componentvault.android.model.MovementScanUiState
 import com.componentvault.android.model.MovementsUiState
 import com.componentvault.android.model.OperationResult
-import com.componentvault.android.model.OverviewUiState
 import com.componentvault.android.model.StockMovementRecord
 import com.componentvault.android.model.StorageLocationRecord
 import com.componentvault.android.model.StorageLocationSaveIntent
 import com.componentvault.android.model.ComponentAllocationRecord
 import com.componentvault.android.model.SyncConfiguration
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import android.net.Uri
 
 internal data class InventoryBackupUiState(
@@ -64,6 +54,8 @@ class InventoryViewModel(
     private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : AndroidViewModel(application) {
     private val repository = InventoryRepository(application)
+    private val backupOperations = InventoryBackupOperations(application, repository)
+    private val bomImportOperations = BomImportOperations(repository)
     var startupFailure by mutableStateOf<String?>(null)
         private set
     private var initialLoadComplete = false
@@ -73,6 +65,16 @@ class InventoryViewModel(
     private var issuedQuantitiesCache: Map<String, Long> = emptyMap()
     private var storageLocationsCache: List<StorageLocationRecord> = emptyList()
     private var allocationsCache: List<ComponentAllocationRecord> = emptyList()
+    private fun inventoryProjector() = InventoryStateProjector(
+        allComponentsCache,
+        allMovementsCache,
+        issuedQuantitiesCache,
+        storageLocationsCache,
+        allocationsCache,
+    )
+    private fun movementBatchCoordinator() = MovementBatchCoordinator(
+        getApplication(), allComponentsCache, storageLocationsCache, allocationsCache,
+    )
     private val defaultSyncMessage = application.getString(R.string.sync_no_sync_yet)
     private val defaultLastSyncedAt = application.getString(R.string.sync_never)
     internal var backupUiState by mutableStateOf(InventoryBackupUiState())
@@ -167,20 +169,10 @@ class InventoryViewModel(
     fun selectComponent(componentId: String?) {
         val selectedComponent = allComponentsCache.firstOrNull { it.id == componentId }
         val selectedId = selectedComponent?.id
-        val recentMovements = if (selectedId == null) {
-            emptyList()
-        } else {
-            allMovementsCache.filter { it.componentId == selectedId }.take(5)
-        }
         uiState = uiState.copy(
             inventory = uiState.inventory.copy(
                 list = uiState.inventory.list.copy(selectedComponentId = selectedId),
-                detail = InventoryDetailUiState(
-                    component = selectedComponent,
-                    recentMovements = recentMovements,
-                    issuedQuantity = selectedId?.let { issuedQuantitiesCache[it] } ?: 0,
-                    allocations = selectedId?.let { id -> allocationsCache.filter { it.componentId == id } }.orEmpty(),
-                ),
+                detail = inventoryProjector().detail(selectedComponent),
             ),
         )
     }
@@ -206,10 +198,51 @@ class InventoryViewModel(
         }
     }
 
-    fun exportInventoryBackup(uri:Uri){viewModelScope.launch{backupUiState=InventoryBackupUiState(loading=true);runCatching{val bytes=repository.exportInventoryWorkbook();withContext(Dispatchers.IO){getApplication<Application>().contentResolver.openOutputStream(uri,"w")!!.use{it.write(bytes)}}}.onSuccess{backupUiState=InventoryBackupUiState(message="备份已导出。")}.onFailure{backupUiState=InventoryBackupUiState(message=it.message?:"备份导出失败。")}}}
-    fun previewInventoryBackup(uri:Uri){viewModelScope.launch{backupUiState=InventoryBackupUiState(loading=true);runCatching{val bytes=withContext(Dispatchers.IO){getApplication<Application>().contentResolver.openInputStream(uri)!!.use{input->val output=java.io.ByteArrayOutputStream();val buffer=ByteArray(DEFAULT_BUFFER_SIZE);var total=0;while(true){val count=input.read(buffer);if(count<0)break;total=Math.addExact(total,count);require(total<=InventoryWorkbookCodec.MAX_FILE_BYTES){"备份文件超过 50 MiB。"};output.write(buffer,0,count)};output.toByteArray()}};repository.previewInventoryWorkbook(bytes)}.onSuccess{backupUiState=InventoryBackupUiState(preview=it)}.onFailure{backupUiState=InventoryBackupUiState(message=it.message?:"备份预览失败。")}}}
-    fun confirmInventoryRestore(){val p=backupUiState.preview?:return;viewModelScope.launch{backupUiState=backupUiState.copy(loading=true);val result=repository.restoreInventoryWorkbook(p);backupUiState=InventoryBackupUiState(message=result.message);if(result.isSuccess)refresh()}}
-    fun clearInventoryBackupState(){backupUiState=InventoryBackupUiState()}
+    fun exportInventoryBackup(uri: Uri) {
+        viewModelScope.launch {
+            backupUiState = InventoryBackupUiState(loading = true)
+            try {
+                backupOperations.export(uri)
+                backupUiState = InventoryBackupUiState(message = "备份已导出。")
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                backupUiState = InventoryBackupUiState()
+                throw cancelled
+            } catch (error: Exception) {
+                backupUiState = InventoryBackupUiState(message = error.message ?: "备份导出失败。")
+            }
+        }
+    }
+
+    fun previewInventoryBackup(uri: Uri) {
+        viewModelScope.launch {
+            backupUiState = InventoryBackupUiState(loading = true)
+            try {
+                backupUiState = InventoryBackupUiState(preview = backupOperations.preview(uri))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                backupUiState = InventoryBackupUiState()
+                throw cancelled
+            } catch (error: Exception) {
+                backupUiState = InventoryBackupUiState(message = error.message ?: "备份预览失败。")
+            }
+        }
+    }
+
+    fun confirmInventoryRestore() {
+        val preview = backupUiState.preview ?: return
+        viewModelScope.launch {
+            backupUiState = backupUiState.copy(loading = true)
+            try {
+                val result = backupOperations.restore(preview)
+                backupUiState = InventoryBackupUiState(message = result.message)
+                if (result.isSuccess) refresh()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                backupUiState = InventoryBackupUiState()
+                throw cancelled
+            }
+        }
+    }
+
+    fun clearInventoryBackupState() { backupUiState = InventoryBackupUiState() }
 
     fun saveImportedComponent(
         draft: ComponentDraft,
@@ -528,7 +561,7 @@ class InventoryViewModel(
         onComplete: (OperationResult) -> Unit = {},
     ) {
         if (movementBatchCommitInProgress) return
-        val validation = validateMovementBatchSession(uiState.movements.batchSession)
+        val validation = movementBatchCoordinator().validate(uiState.movements.batchSession)
         if (!validation.isValid) {
             uiState = uiState.copy(
                 movements = buildMovementsUiState(
@@ -563,6 +596,9 @@ class InventoryViewModel(
             )
             val result = try {
                 repository.recordMovementsBatch(drafts)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                uiState = uiState.copy(isBusy = false)
+                throw cancelled
             } finally {
                 movementBatchCommitInProgress = false
             }
@@ -619,7 +655,7 @@ class InventoryViewModel(
                             isResolving = false,
                             resolution = MovementScanResolutionUiState(),
                         ),
-                        batchSession = enqueueMovementBatchItem(
+                        batchSession = movementBatchCoordinator().enqueue(
                             session = uiState.movements.batchSession,
                             component = matchedComponent,
                         ).copy(stage = MovementBatchStage.Review),
@@ -699,33 +735,7 @@ class InventoryViewModel(
 
     private suspend fun runSyncInternal() {
         val result = repository.runSync()
-        val syncConfiguration = repository.loadSyncConfiguration()
-        val appPreferences = repository.loadAppPreferences()
-        val importLearningSummary = repository.loadImportLearningSummary()
-        allComponentsCache = repository.loadComponents()
-        allMovementsCache = repository.loadMovements()
-        issuedQuantitiesCache = repository.loadIssuedQuantities()
-        storageLocationsCache = repository.loadStorageLocations()
-        allocationsCache = repository.loadAllocations()
-        val dashboardSnapshot = repository.loadDashboardSnapshot()
-        uiState = uiState.copy(
-            overview = buildOverviewUiState(dashboardSnapshot),
-            availableComponents = allComponentsCache,
-            inventory = buildInventoryScreenUiState(),
-            movements = buildMovementsUiState(
-                scanState = uiState.movements.scan,
-                batchSession = uiState.movements.batchSession,
-            ),
-            importLearningSummary = importLearningSummary,
-            appPreferences = appPreferences,
-            syncConfiguration = syncConfiguration,
-            statusMessage = if (result.isSuccess) {
-                syncConfiguration.lastSyncMessage
-            } else {
-                result.message
-            },
-            isBusy = false,
-        )
+        reloadState(statusMessage = result.message.takeUnless { result.isSuccess })
     }
 
     private suspend fun reloadState(
@@ -742,7 +752,7 @@ class InventoryViewModel(
         val importLearningSummary = repository.loadImportLearningSummary()
         val dashboardSnapshot = repository.loadDashboardSnapshot()
         uiState = uiState.copy(
-            overview = buildOverviewUiState(dashboardSnapshot),
+            overview = inventoryProjector().overview(dashboardSnapshot),
             availableComponents = allComponentsCache,
             inventory = buildInventoryScreenUiState(
                 preferredSelectedComponentId = preferredSelectedComponentId,
@@ -779,23 +789,6 @@ class InventoryViewModel(
         )
     }
 
-    private fun buildOverviewUiState(
-        componentSnapshot: DashboardSnapshot,
-    ): OverviewUiState {
-        return OverviewUiState(
-            componentCount = componentSnapshot.componentCount,
-            totalUnits = componentSnapshot.totalUnits,
-            lowStockCount = componentSnapshot.lowStockCount,
-            movementCount = componentSnapshot.movementCount,
-            lowStockItems = allComponentsCache
-                .filter { it.isLowStock }
-                .sortedWith(compareBy<ComponentRecord> { it.quantity }.thenBy { it.name.lowercase() })
-                .take(6)
-                .map(::toInventoryListItem),
-            recentMovements = allMovementsCache.take(8),
-        )
-    }
-
     private fun buildMovementsUiState(
         scanState: MovementScanUiState = uiState.movements.scan,
         batchSession: MovementBatchSessionUiState = uiState.movements.batchSession,
@@ -810,119 +803,23 @@ class InventoryViewModel(
             componentCount = allComponentsCache.size,
             selectedMovementId = selectedMovementId,
             scan = scanState,
-            batchSession = reconcileMovementBatchSession(batchSession),
+            batchSession = movementBatchCoordinator().reconcile(batchSession),
         )
     }
 
     private fun buildInventoryScreenUiState(
         filters: InventoryFiltersUiState = uiState.inventory.filters,
         preferredSelectedComponentId: String? = null,
-    ): InventoryScreenUiState {
-        val filteredComponents = applyComponentFilter(
-            components = allComponentsCache,
-            filters = filters,
-        )
-        val selectedComponentId = (preferredSelectedComponentId ?: uiState.inventory.list.selectedComponentId)?.takeIf { selectedId ->
-            filteredComponents.any { it.id == selectedId }
-        }
-        val selectedComponent = filteredComponents.firstOrNull { it.id == selectedComponentId }
-
-        return InventoryScreenUiState(
-            totalComponentCount = allComponentsCache.count { !it.deleted },
-            filters = filters,
-            availableCategories = CategoryFilterSemantics.options(allComponentsCache.map { it.category }),
-            availableLocations = allComponentsCache
-                .map { it.location }
-                .filter { it.isNotBlank() }
-                .distinct()
-                .sortedBy { it.lowercase() },
-            list = InventoryListUiState(
-                items = filteredComponents.map(::toInventoryListItem),
-                selectedComponentId = selectedComponentId,
-            ),
-            detail = InventoryDetailUiState(
-                component = selectedComponent,
-                recentMovements = if (selectedComponent == null) {
-                    emptyList()
-                } else {
-                    allMovementsCache.filter { it.componentId == selectedComponent.id }.take(5)
-                },
-                issuedQuantity = selectedComponent?.let { issuedQuantitiesCache[it.id] } ?: 0,
-                allocations = selectedComponent?.let { selected ->
-                    allocationsCache.filter { it.componentId == selected.id }
-                }.orEmpty(),
-            ),
-            storageLocations = storageLocationsCache,
-            allocations = allocationsCache,
-        )
-    }
-
-    private fun applyComponentFilter(
-        components: List<ComponentRecord>,
-        filters: InventoryFiltersUiState,
-    ): List<ComponentRecord> {
-        val filtered = components.filter { component ->
-            val matchesLowStock = filters.stockFilter != InventoryStockFilter.LowStock || component.isLowStock
-            val matchesQuery = InventorySearch.matches(component, filters.query)
-            val matchesCategory = filters.category.isNullOrBlank() ||
-                CategoryFilterSemantics.sameCategory(component.category, filters.category.orEmpty())
-            val matchesLocation = filters.location.isNullOrBlank() || component.location == filters.location
-
-            matchesLowStock && matchesQuery && matchesCategory && matchesLocation
-        }
-
-        return when (filters.sort) {
-            InventorySortOption.UpdatedNewest -> filtered.sortedWith(
-                compareByDescending<ComponentRecord> { it.updatedAt }.thenBy { it.name.lowercase() },
-            )
-            InventorySortOption.Name -> filtered.sortedBy { it.name.lowercase() }
-            InventorySortOption.QuantityLowToHigh -> filtered.sortedWith(
-                compareBy<ComponentRecord> { it.quantity }.thenBy { it.name.lowercase() },
-            )
-            InventorySortOption.QuantityHighToLow -> filtered.sortedWith(
-                compareByDescending<ComponentRecord> { it.quantity }.thenBy { it.name.lowercase() },
-            )
-        }
-    }
-
-    private fun toInventoryListItem(component: ComponentRecord): InventoryListItemUiState {
-        return InventoryListItemUiState(
-            id = component.id,
-            name = component.name,
-            sku = component.sku,
-            category = component.category,
-            packageName = component.packageName,
-            location = component.location,
-            quantity = component.quantity,
-            minStock = component.minStock,
-            isLowStock = component.isLowStock,
-            updatedAt = component.updatedAt,
-            productImageUrl = component.productImageUrl,
-            description = component.description,
-            specificationSummary = component.officialRclSpecificationSummary(),
-            issuedQuantity = issuedQuantitiesCache[component.id] ?: 0,
-        )
-    }
+    ): InventoryScreenUiState = inventoryProjector().inventory(
+        filters = filters,
+        selectedComponentId = preferredSelectedComponentId ?: uiState.inventory.list.selectedComponentId,
+    )
 
     private fun revealSavedComponent(componentId: String) {
-        val filters = uiState.inventory.filters
-        val isVisibleUnderCurrentFilters = applyComponentFilter(
-            components = allComponentsCache,
-            filters = filters,
-        ).any { it.id == componentId }
-        val effectiveFilters = if (isVisibleUnderCurrentFilters) {
-            filters
-        } else {
-            filters.copy(
-                query = "",
-                stockFilter = InventoryStockFilter.All,
-                category = null,
-                location = null,
-            )
-        }
+        val filters = inventoryProjector().filtersRevealing(componentId, uiState.inventory.filters)
         uiState = uiState.copy(
             inventory = buildInventoryScreenUiState(
-                filters = effectiveFilters,
+                filters = filters,
                 preferredSelectedComponentId = componentId,
             ),
         )
@@ -935,216 +832,39 @@ class InventoryViewModel(
         uiState = uiState.copy(
             movements = buildMovementsUiState(
                 scanState = uiState.movements.scan,
-                batchSession = uiState.movements.batchSession.copy(
-                    stage = MovementBatchStage.Review,
-                    queuedItems = uiState.movements.batchSession.queuedItems.map { item ->
-                        if (item.componentId == componentId) {
-                            transform(item)
-                        } else {
-                            item
-                        }
-                    },
+                batchSession = movementBatchCoordinator().update(
+                    session = uiState.movements.batchSession,
+                    componentId = componentId,
+                    transform = transform,
                 ),
             ),
         )
         saveMovementBatchDraft()
     }
 
-    private fun enqueueMovementBatchItem(
-        session: MovementBatchSessionUiState,
-        component: ComponentRecord,
-    ): MovementBatchSessionUiState {
-        val existingItem = session.queuedItems.firstOrNull { it.componentId == component.id }
-        val queuedItems = if (existingItem == null) {
-            session.queuedItems + toMovementBatchQueueItem(component).copy(
-                movementType = session.defaultMovementType,
-                reason = getApplication<Application>().getString(
-                    if (session.defaultMovementType == MovementQuickAction.Outbound.movementType)
-                        R.string.scan_stock_outbound else R.string.scan_stock_inbound,
-                ),
-            )
-        } else {
-            session.queuedItems.map { item ->
-                if (item.componentId != component.id) {
-                    item
-                } else {
-                    val nextScanCount = item.scanCount + 1
-                    item.copy(
-                        componentName = component.name,
-                        componentSku = component.sku,
-                        category = component.category,
-                        packageName = component.packageName,
-                        location = item.location.takeIf { it in movementLocationQuantities(component.id) } ?: component.location,
-                        locationQuantities = movementLocationQuantities(component.id),
-                        locationNames = storageLocationsCache.filterNot { it.deleted }.associate { it.id to it.name },
-                        currentStock = component.quantity,
-                        minStock = component.minStock,
-                        scanCount = nextScanCount,
-                        quantityText = if (item.isDirty) {
-                            item.quantityText
-                        } else {
-                            nextScanCount.toString()
-                        },
-                        errorMessage = null,
-                    )
-                }
-            }
+    private suspend fun <T> completeImportPreview(
+        onComplete: (Result<T>) -> Unit,
+        operation: suspend () -> T,
+    ) {
+        val result = try {
+            Result.success(operation())
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
         }
-
-        return session.copy(
-            stage = MovementBatchStage.Scanning,
-            queuedItems = queuedItems,
-            totalScans = session.totalScans + 1,
-            lastQueuedComponentName = component.name,
-            lastQueuedComponentSku = component.sku,
-        )
+        onComplete(result)
     }
-
-    private fun movementLocationQuantities(componentId: String): Map<String, Int> =
-        storageLocationsCache.filterNot { it.deleted }.associate { location ->
-            location.id to allocationsCache.filter { it.componentId == componentId && it.locationId == location.id }.sumOf { it.quantity }
-        }
-
-    private fun toMovementBatchQueueItem(
-        component: ComponentRecord,
-    ): MovementBatchQueueItemUiState {
-        return MovementBatchQueueItemUiState(
-            componentId = component.id,
-            componentName = component.name,
-            componentSku = component.sku,
-            category = component.category,
-            packageName = component.packageName,
-            location = component.location,
-            locationQuantities = movementLocationQuantities(component.id),
-            locationNames = storageLocationsCache.filterNot { it.deleted }.associate { it.id to it.name },
-            currentStock = component.quantity,
-            minStock = component.minStock,
-        )
-    }
-
-    private fun reconcileMovementBatchSession(
-        session: MovementBatchSessionUiState,
-    ): MovementBatchSessionUiState {
-        if (!session.isActive) {
-            return session
-        }
-
-        val missingComponentMessage = getApplication<Application>()
-            .getString(R.string.sync_choose_active_component_first)
-
-        return session.copy(
-            queuedItems = session.queuedItems.map { item ->
-                val component = allComponentsCache.firstOrNull { it.id == item.componentId }
-                if (component == null) {
-                    item.copy(errorMessage = missingComponentMessage)
-                } else {
-                    item.copy(
-                        componentName = component.name,
-                        componentSku = component.sku,
-                        category = component.category,
-                        packageName = component.packageName,
-                        location = item.location.takeIf { it in movementLocationQuantities(component.id) } ?: component.location,
-                        locationQuantities = movementLocationQuantities(component.id),
-                        locationNames = storageLocationsCache.filterNot { it.deleted }.associate { it.id to it.name },
-                        currentStock = component.quantity,
-                        minStock = component.minStock,
-                    )
-                }
-            },
-        )
-    }
-
-    private fun validateMovementBatchSession(
-        session: MovementBatchSessionUiState,
-    ): MovementBatchValidationResult {
-        val application = getApplication<Application>()
-        if (session.queuedItems.isEmpty()) {
-            val message = application.getString(R.string.sync_movement_batch_empty)
-            return MovementBatchValidationResult(
-                isValid = false,
-                drafts = emptyList(),
-                session = session.copy(stage = MovementBatchStage.Review),
-                message = message,
-            )
-        }
-
-        var firstError: String? = null
-        val drafts = mutableListOf<MovementEntryDraft>()
-        val queuedItems = session.queuedItems.map { item ->
-            val quantity = item.quantityText.toIntOrNull()
-            val errorMessage = when {
-                allComponentsCache.none { it.id == item.componentId } ->
-                    application.getString(R.string.sync_choose_active_component_first)
-                item.location !in item.locationQuantities ->
-                    application.getString(R.string.scan_stock_select_location)
-                item.movementType == MovementQuickAction.Outbound.movementType && quantity != null &&
-                    quantity > (item.locationQuantities[item.location] ?: 0) ->
-                    application.getString(R.string.scan_stock_location_insufficient)
-                item.reason.isBlank() || item.movementType.isBlank() ->
-                    application.getString(R.string.sync_choose_component_type_reason)
-                quantity == null ->
-                    application.getString(R.string.sync_invalid_movement_quantity)
-                item.movementType == MovementQuickAction.Adjustment.movementType && quantity == 0 ->
-                    application.getString(R.string.sync_adjustment_non_zero)
-                item.movementType != MovementQuickAction.Adjustment.movementType && quantity <= 0 ->
-                    application.getString(R.string.sync_movement_quantity_positive)
-                item.movementType == MovementQuickAction.Outbound.movementType &&
-                    item.currentStock - quantity < 0 ->
-                    application.getString(R.string.sync_negative_stock_error)
-                item.movementType == MovementQuickAction.Adjustment.movementType &&
-                    item.currentStock + quantity < 0 ->
-                    application.getString(R.string.sync_negative_stock_error)
-                else -> null
-            }
-
-            if (errorMessage == null && quantity != null) {
-                drafts += MovementEntryDraft(
-                    componentId = item.componentId,
-                    movementType = item.movementType,
-                    quantity = quantity,
-                    reason = item.reason,
-                    note = item.note,
-                    locationId = item.location,
-                )
-                item.copy(errorMessage = null)
-            } else {
-                if (firstError == null) {
-                    firstError = errorMessage
-                }
-                item.copy(errorMessage = errorMessage)
-            }
-        }
-
-        return MovementBatchValidationResult(
-            isValid = firstError == null,
-            drafts = drafts,
-            session = session.copy(
-                stage = MovementBatchStage.Review,
-                queuedItems = queuedItems,
-            ),
-            message = firstError ?: "",
-        )
-    }
-
-    private data class MovementBatchValidationResult(
-        val isValid: Boolean,
-        val drafts: List<MovementEntryDraft>,
-        val session: MovementBatchSessionUiState,
-        val message: String,
-    )
 
     fun listBomSheets(bytes: ByteArray, onComplete: (Result<List<BomSheet>>) -> Unit) {
         viewModelScope.launch {
-            onComplete(runCatching { withContext(Dispatchers.Default) { BomParser.listXlsxSheets(bytes) } })
+            completeImportPreview(onComplete) { bomImportOperations.listSheets(bytes) }
         }
     }
 
     fun inspectBom(bytes: ByteArray, fileName: String, sheetName: String?, onComplete: (Result<com.componentvault.android.data.bom.BomTableInspection>) -> Unit) {
         viewModelScope.launch {
-            onComplete(runCatching { withContext(Dispatchers.Default) {
-                if (fileName.endsWith(".xlsx", true)) com.componentvault.android.data.bom.BomParser.inspectXlsx(bytes, sheetName)
-                else com.componentvault.android.data.bom.BomParser.inspectCsv(bytes)
-            } })
+            completeImportPreview(onComplete) { bomImportOperations.inspect(bytes, fileName, sheetName) }
         }
     }
 
@@ -1161,15 +881,12 @@ class InventoryViewModel(
         onComplete: (Result<BomReleasePreview>) -> Unit,
     ) {
         viewModelScope.launch {
-            onComplete(runCatching {
-                val parsed: BomParseResult = withContext(Dispatchers.Default) { if (fileName.endsWith(".xlsx", true)) {
-                    BomParser.parseXlsx(bytes, projectName, productionSets, sheetName, mapping)
-                } else {
-                    require(fileName.endsWith(".csv", true)) { "仅支持 CSV 或 XLSX BOM。" }
-                    BomParser.parseCsv(bytes, projectName, productionSets, mapping)
-                } }
-                repository.previewBomRelease(parsed, selections, searchQueries, excludedKeys)
-            })
+            completeImportPreview(onComplete) {
+                bomImportOperations.preview(
+                    bytes, fileName, projectName, productionSets, sheetName,
+                    mapping, selections, searchQueries, excludedKeys,
+                )
+            }
         }
     }
 
@@ -1198,9 +915,9 @@ class InventoryViewModel(
         onComplete: (Result<BomReleasePreview>) -> Unit,
     ) {
         viewModelScope.launch {
-            onComplete(runCatching {
-                repository.previewBomRelease(parsed, selections, searchQueries, excludedKeys)
-            })
+            completeImportPreview(onComplete) {
+                bomImportOperations.previewPreset(parsed, selections, searchQueries, excludedKeys)
+            }
         }
     }
 
@@ -1210,16 +927,9 @@ class InventoryViewModel(
         onComplete: (Result<com.componentvault.android.data.bom.ComponentHubParseResult>) -> Unit,
     ) {
         viewModelScope.launch {
-            onComplete(runCatching {
-                repository.previewComponentHub(
-                    bytes,
-                    if (skipDuplicates) {
-                        com.componentvault.android.data.bom.ComponentHubDuplicatePolicy.SKIP
-                    } else {
-                        com.componentvault.android.data.bom.ComponentHubDuplicatePolicy.BLOCK
-                    },
-                )
-            })
+            completeImportPreview(onComplete) {
+                bomImportOperations.previewComponentHub(bytes, skipDuplicates)
+            }
         }
     }
 
