@@ -29,6 +29,7 @@ public partial class App : Application
             MainViewModel = new MainViewModel(store, syncService);
 
             Window = new MainWindow();
+            Window.Closed += (_, _) => MainViewModel?.Dispose();
             PrepareStartupSmokeIfRequested();
             Window.Activate();
         }
