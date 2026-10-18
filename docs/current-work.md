@@ -7,6 +7,7 @@
 - 本候选尚未进行手机验收，不借用 dev.15 的实机结果。当前可安装且已验收的部分交付仍为 v0.7.8-dev.15；新功能先保留为候选，不发布正式版、不更新 Docker 正式标签。
 - 下一次先检查本提交 GitHub CI，取签名候选包并保留数据覆盖安装；验证 BOM 旋转/暂存/清除匹配、CSV 导出在途确认与真实导入提醒、库位扫码/标签编辑、库位名称。测试使用专用数据，结束后经 UI 清理并比较备份。通过后才发布 dev.16。
 - Issues 修复完成后再分析 personal-cross-device-todo.md；该文件本轮尚未分析。
+- 追加有限额度核对：提交 f8d75e7 的 CI 39105176493 中 Windows、服务端测试、容器、Web、版本检查成功；Android inventory regressions 共 326 项，325 通过，仅新增 BluetoothLabelPrintUiTest.positionSheetCanSelectAFieldWithoutVisiblePrintContent 失败（Left (mm) 不可见）。在本地允许缓存访问后，补 performScrollTo 的单项复测仍失败，已撤回无效尝试；不删除或放宽断言，不标记通过，不发布 dev.16。日志 .tmp/dev16-ci-fix.log。下次优先检查空二维码位置面板的实际可见区域与测试渲染条件，确认真实原因后修复；不要重复无效的仅加滚动尝试。
 # 2026-10-18 Android 核心模块化（0.7.8-dev.15）
 
 - 起点 master `98be826`。按用户顺序，先完成 Android 模块化及实机验收，之后分析公开 Issues，最后评估跨设备优化文档。
