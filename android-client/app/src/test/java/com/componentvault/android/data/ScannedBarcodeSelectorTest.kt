@@ -32,4 +32,17 @@ class ScannedBarcodeSelectorTest {
         val selected=assertIs<BarcodeSelection.Single>(ScannedBarcodeSelector.importCandidates(listOf("unknown",raw)))
         assertEquals(raw,selected.rawValue)
     }
+
+    @Test fun inventoryScannerRecognizesLocationWithoutChangingImportScanner() {
+        val location = LocationQrCodec.encode("Drawer-A1")
+        assertTrue(ScannedBarcodeSelector.importCandidates(listOf(location)) is BarcodeSelection.NoMatch)
+        val selected = assertIs<BarcodeSelection.Single>(
+            ScannedBarcodeSelector.inventoryCandidates(listOf("unknown", location)),
+        )
+        assertEquals(location, selected.rawValue)
+        val mixed = assertIs<BarcodeSelection.Multiple>(
+            ScannedBarcodeSelector.inventoryCandidates(listOf(location, "pc:C70565,qty:1")),
+        )
+        assertEquals(2, mixed.candidates.size)
+    }
 }

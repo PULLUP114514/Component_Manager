@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bom_procurement_save_error">Could not save procurement reminders. Please retry.</string>
+    <string name="bom_procurement_in_transit">Purchased / In transit</string>
+    <string name="bom_procurement_arrived">New stock received. Check the quantity.</string>
+    <string name="bom_procurement_cancel">Cancel purchase marker</string>
+    <string name="bom_procurement_acknowledge">Checked, clear reminder</string>
+    <string name="bom_procurement_reorder">Mark in transit again</string>
+    <string name="bom_procurement_mark">Mark purchased / in transit</string>
+    <string name="bom_procurement_local_hint">Purchase markers stay on this device. They remind you of arrivals and do not reserve or deduct stock.</string>
+    <string name="bom_procurement_export_title">Mark shortages as in transit?</string>
+    <string name="bom_procurement_export_body">The shortage CSV was exported. If you have placed an order, mark these %1$d items as purchased / in transit to receive a reminder when stock is imported. This does not place an order or change inventory.</string>
+    <string name="bom_procurement_not_now">Not now</string>
+    <string name="bom_procurement_summary">This project: %1$d in transit · %2$d arrivals to check</string>
+    <string name="bom_procurement_reload">Reload purchase reminders</string>
+</resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bom_status_matched">Matched</string>
+    <string name="bom_status_unmatched">Unmatched</string>
+    <string name="bom_status_excluded">Excluded from release</string>
+    <string name="bom_selected_tap_to_clear">Selected: %1$s · Tap to clear</string>
+    <string name="bom_clear_match_title">Clear match?</string>
+    <string name="bom_clear_match_message">This BOM line will remain unmatched until you choose another inventory item.</string>
+    <string name="bom_clear_match_confirm">Clear match</string>
+    <string name="bom_clear_match_cancel">Keep match</string>
+    <string name="bom_exit_title">Leave import?</string>
+    <string name="bom_exit_message">Keep this progress and continue from the same entry later, or discard it.</string>
+    <string name="bom_exit_keep">Yes, keep progress</string>
+    <string name="bom_exit_discard">Discard progress</string>
+    <string name="bom_exit_cancel">Stay here</string>
+    <string name="bom_exit_back_to_setup">Back to import settings</string>
+</resources>

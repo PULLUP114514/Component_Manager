@@ -97,6 +97,7 @@ internal fun InventoryScreen(
     onStockFilterChange: (InventoryStockFilter) -> Unit,
     onCategoryChange: (String?) -> Unit,
     onLocationChange: (String?) -> Unit,
+    onScanInventory: () -> Unit = {},
     onSortChange: (InventorySortOption) -> Unit,
     onSelectComponent: (String) -> Unit,
     onOpenComponentDetail: (String) -> Unit,
@@ -118,6 +119,7 @@ internal fun InventoryScreen(
         onStockFilterChange = onStockFilterChange,
         onCategoryChange = onCategoryChange,
         onLocationChange = onLocationChange,
+        onScanInventory = onScanInventory,
         onSortChange = onSortChange,
         onSelectComponent = onSelectComponent,
         onOpenComponentDetail = onOpenComponentDetail,
@@ -143,6 +145,7 @@ internal fun InventoryContent(
     onStockFilterChange: (InventoryStockFilter) -> Unit,
     onCategoryChange: (String?) -> Unit,
     onLocationChange: (String?) -> Unit,
+    onScanInventory: () -> Unit = {},
     onSortChange: (InventorySortOption) -> Unit,
     onSelectComponent: (String) -> Unit,
     onOpenComponentDetail: (String) -> Unit,
@@ -181,6 +184,7 @@ internal fun InventoryContent(
                         onStockFilterChange = onStockFilterChange,
                         onCategoryChange = onCategoryChange,
                         onLocationChange = onLocationChange,
+                        onScanInventory = onScanInventory,
                         onSortChange = onSortChange,
                         onSelectComponent = { componentId ->
                             onSelectComponent(componentId)
@@ -224,6 +228,7 @@ internal fun InventoryContent(
             onStockFilterChange = onStockFilterChange,
             onCategoryChange = onCategoryChange,
             onLocationChange = onLocationChange,
+            onScanInventory = onScanInventory,
             onSortChange = onSortChange,
             onSelectComponent = { componentId ->
                 onSelectComponent(componentId)
@@ -311,6 +316,7 @@ private fun InventoryListPane(
     onStockFilterChange: (InventoryStockFilter) -> Unit,
     onCategoryChange: (String?) -> Unit,
     onLocationChange: (String?) -> Unit,
+    onScanInventory: () -> Unit,
     onSortChange: (InventorySortOption) -> Unit,
     onSelectComponent: (String) -> Unit,
     onOpenBluetoothPrint: () -> Unit,
@@ -358,6 +364,11 @@ private fun InventoryListPane(
             if (onBatchTransfer != null && !selecting) {
                 TextButton(onClick = { selecting = true }) {
                     Text(stringResource(R.string.inventory_ui_select))
+                }
+            }
+            if (!selecting) {
+                TextButton(onClick = onScanInventory) {
+                    Text(stringResource(R.string.location_qr_scan))
                 }
             }
             if (!selecting) {

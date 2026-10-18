@@ -41,11 +41,16 @@ internal class InventoryStateProjector(
     ): InventoryScreenUiState {
         val filtered = filter(filters)
         val selected = filtered.firstOrNull { it.id == selectedComponentId }
+        val activeComponentIds = components.filterNot { it.deleted }.mapTo(mutableSetOf()) { it.id }
         return InventoryScreenUiState(
             totalComponentCount = components.count { !it.deleted },
             filters = filters,
             availableCategories = CategoryFilterSemantics.options(components.map { it.category }),
-            availableLocations = components.map { it.location }.filter { it.isNotBlank() }
+            availableLocations = (locations.filterNot { it.deleted }.map { it.id } +
+                components.filterNot { it.deleted }.map { it.location } +
+                allocations.filter { it.quantity > 0 && it.componentId in activeComponentIds }
+                    .map { it.locationId })
+                .filter { it.isNotBlank() }
                 .distinct().sortedBy { it.lowercase() },
             list = InventoryListUiState(
                 items = filtered.map(::listItem),
@@ -77,12 +82,20 @@ internal class InventoryStateProjector(
         )
 
     private fun filter(filters: InventoryFiltersUiState): List<ComponentRecord> {
+        val allocationsByComponent = allocations.groupBy { it.componentId }
         val filtered = components.filter { component ->
             val matchesLowStock = filters.stockFilter != InventoryStockFilter.LowStock || component.isLowStock
             val matchesQuery = InventorySearch.matches(component, filters.query)
             val matchesCategory = filters.category.isNullOrBlank() ||
                 CategoryFilterSemantics.sameCategory(component.category, filters.category.orEmpty())
-            val matchesLocation = filters.location.isNullOrBlank() || component.location == filters.location
+            val componentAllocations = allocationsByComponent[component.id].orEmpty()
+            val matchesLocation = filters.location.isNullOrBlank() ||
+                (component.quantity == 0 && component.location == filters.location) ||
+                (if (componentAllocations.isEmpty()) {
+                    component.location == filters.location && component.quantity > 0
+                } else {
+                    componentAllocations.any { it.locationId == filters.location && it.quantity > 0 }
+                })
             matchesLowStock && matchesQuery && matchesCategory && matchesLocation
         }
         return when (filters.sort) {

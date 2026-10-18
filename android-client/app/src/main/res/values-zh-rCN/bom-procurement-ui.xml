@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bom_procurement_save_error">采购提醒保存失败，请重试。</string>
+    <string name="bom_procurement_in_transit">已购买 / 在途</string>
+    <string name="bom_procurement_arrived">有新到货入库，请核对数量</string>
+    <string name="bom_procurement_cancel">取消采购标记</string>
+    <string name="bom_procurement_acknowledge">已核对，清除提醒</string>
+    <string name="bom_procurement_reorder">再次标记在途</string>
+    <string name="bom_procurement_mark">标记已购买 / 在途</string>
+    <string name="bom_procurement_local_hint">采购标记保存在本机，仅用于到货提醒，不预占或扣减库存。</string>
+    <string name="bom_procurement_export_title">将缺料标记为在途？</string>
+    <string name="bom_procurement_export_body">已导出缺料 CSV。若已下单，可将这 %1$d 项标记为“已购买 / 在途”；导入到货元件后会提醒核对。此操作不会下单或修改库存。</string>
+    <string name="bom_procurement_not_now">暂不标记</string>
+    <string name="bom_procurement_summary">本项目：在途 %1$d 项 · 到货待核对 %2$d 项</string>
+    <string name="bom_procurement_reload">重新读取采购提醒</string>
+</resources>

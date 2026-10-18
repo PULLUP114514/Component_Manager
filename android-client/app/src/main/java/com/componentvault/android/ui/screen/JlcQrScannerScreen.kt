@@ -84,6 +84,7 @@ internal enum class JlcQrScannerUiState {
 
 internal enum class JlcQrScannerMode {
     ImportQr,
+    InventoryLookup,
     MovementSmallLabel,
     BatchContinuous,
 }
@@ -104,6 +105,12 @@ private data class JlcQrScannerConfig(
 private fun JlcQrScannerMode.toConfig(): JlcQrScannerConfig = when (this) {
     JlcQrScannerMode.ImportQr -> JlcQrScannerConfig(
         analysisTargetResolution = Size(1280, 720),
+        overlaySizeDp = 260,
+        enablePotentialBarcodeDetection = true,
+        enableZoomSuggestions = true,
+    )
+    JlcQrScannerMode.InventoryLookup -> JlcQrScannerConfig(
+        analysisTargetResolution = Size(1920, 1080),
         overlaySizeDp = 260,
         enablePotentialBarcodeDetection = true,
         enableZoomSuggestions = true,
@@ -279,7 +286,9 @@ internal fun JlcQrScannerSurface(
                             }
                             false
                         } else
-                        when (val selection = ScannedBarcodeSelector.importCandidates(values)) {
+                        when (val selection = if (scannerMode == JlcQrScannerMode.InventoryLookup)
+                            ScannedBarcodeSelector.inventoryCandidates(values)
+                        else ScannedBarcodeSelector.importCandidates(values)) {
                             BarcodeSelection.NoMatch -> {
                                 if (decodedHint != decodedNoPartText) {
                                     decodedHint = decodedNoPartText

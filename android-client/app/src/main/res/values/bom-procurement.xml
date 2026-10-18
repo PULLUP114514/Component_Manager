@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bom_procurement_arrival_notice">%1$d BOM purchase items arrived and need review.</string>
+    <string name="bom_procurement_reminder_update_failed">Inventory was saved, but the BOM arrival reminder could not be updated. Check local storage and retry from the BOM page.</string>
+</resources>

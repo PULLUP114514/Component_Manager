@@ -39,6 +39,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import com.componentvault.android.R
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -379,51 +381,20 @@ internal fun MovementEntryFields(
     storageLocations: List<StorageLocationRecord> = emptyList(),
 ) {
     val strings = vaultStrings()
-    var sourceMenu by remember { mutableStateOf(false) }
-    var destinationMenu by remember { mutableStateOf(false) }
-
     SectionPane(title = strings.forms.movementEntryTitle) {
-        OutlinedTextField(
+        MovementLocationSelector(
+            title = stringResource(R.string.movement_source_location),
             value = state.locationId,
-            onValueChange = { onStateChange(state.copy(locationId = it.trim(), errorMessage = null)) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("源库位编码") },
-            singleLine = true,
+            locations = storageLocations,
+            onSelect = { onStateChange(state.copy(locationId = it, errorMessage = null)) },
         )
-        if (storageLocations.isNotEmpty()) {
-            OutlinedButton(onClick = { sourceMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("选择已有源库位")
-            }
-            DropdownMenu(expanded = sourceMenu, onDismissRequest = { sourceMenu = false }) {
-                storageLocations.forEach { location ->
-                    DropdownMenuItem(text = { Text("${location.name} (${location.id})") }, onClick = {
-                        onStateChange(state.copy(locationId = location.id, errorMessage = null)); sourceMenu = false
-                    })
-                }
-                DropdownMenuItem(text = { Text("新建库位…") }, onClick = { sourceMenu = false })
-            }
-        }
         if (state.movementType == "transfer") {
-            OutlinedTextField(
+            MovementLocationSelector(
+                title = stringResource(R.string.movement_destination_location),
                 value = state.destinationLocationId,
-                onValueChange = { onStateChange(state.copy(destinationLocationId = it.trim(), errorMessage = null)) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("目标库位编码") },
-                singleLine = true,
+                locations = storageLocations.filterNot { it.id == state.locationId },
+                onSelect = { onStateChange(state.copy(destinationLocationId = it, errorMessage = null)) },
             )
-            if (storageLocations.isNotEmpty()) {
-                OutlinedButton(onClick = { destinationMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("选择已有目标库位")
-                }
-                DropdownMenu(expanded = destinationMenu, onDismissRequest = { destinationMenu = false }) {
-                    storageLocations.filterNot { it.id == state.locationId }.forEach { location ->
-                        DropdownMenuItem(text = { Text("${location.name} (${location.id})") }, onClick = {
-                            onStateChange(state.copy(destinationLocationId = location.id, errorMessage = null)); destinationMenu = false
-                        })
-                    }
-                    DropdownMenuItem(text = { Text("新建库位…") }, onClick = { destinationMenu = false })
-                }
-            }
         }
         QuantityInputField(
             value = state.quantityText,
@@ -464,6 +435,39 @@ internal fun MovementEntryFields(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
+        }
+    }
+}
+
+/** Display names to people; submit the stable ID selected from an active location. */
+@Composable
+internal fun MovementLocationSelector(
+    title: String,
+    value: String,
+    locations: List<StorageLocationRecord>,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val active = locations.filterNot(StorageLocationRecord::deleted)
+    Text(title, style = MaterialTheme.typography.labelLarge)
+    Box {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(active.firstOrNull { it.id == value }?.name ?: stringResource(R.string.importer_select_location))
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 280.dp).widthIn(max = 320.dp),
+        ) {
+            active.forEach { location ->
+                DropdownMenuItem(
+                    text = { Text(location.name, maxLines = 2) },
+                    onClick = { expanded = false; onSelect(location.id) },
+                )
+            }
+            if (active.isEmpty()) {
+                DropdownMenuItem(text = { Text(stringResource(R.string.movement_no_locations)) }, onClick = {}, enabled = false)
+            }
         }
     }
 }

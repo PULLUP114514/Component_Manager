@@ -108,6 +108,20 @@ class StorageLocationPersistenceTest {
         assertEquals(true, location("BIN-D")?.deleted)
     }
 
+    @Test
+    fun deletedRememberedImportLocationFallsBackWithoutChangingConfiguredDefault() = runBlocking {
+        val original = repository.loadAppPreferences()
+        repository.saveAppPreferences(original.copy(defaultImportLocation = "A"))
+        assertTrue(repository.saveStorageLocation("REMEMBERED", "Temporary", StorageLocationSaveIntent.Create).isSuccess)
+        repository.rememberLastImportLocation("REMEMBERED")
+        repository.loadStorageLocations()
+        assertEquals("REMEMBERED", repository.loadAppPreferences().lastImportLocation)
+        assertTrue(repository.deleteStorageLocation("REMEMBERED").isSuccess)
+        repository.loadStorageLocations()
+        assertEquals("", repository.loadAppPreferences().lastImportLocation)
+        assertEquals("A", repository.loadAppPreferences().defaultImportLocation)
+    }
+
     private fun location(id: String): LocationRow? {
         val helper = InventoryDatabaseHelper(context)
         try {

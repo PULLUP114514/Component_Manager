@@ -14,6 +14,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isEnabled
@@ -188,6 +189,23 @@ class BluetoothLabelPrintUiTest {
             compose.onAllNodesWithTag("label_element_text").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText(context.getString(R.string.label_ui_empty_text)).assertIsDisplayed()
+        LabelPrintQueueStore(context).clear()
+    }
+
+    @Test
+    fun positionSheetCanSelectAFieldWithoutVisiblePrintContent() {
+        LabelPrintQueueStore(context).clear()
+        setLabelContent {
+            MaterialTheme { BluetoothLabelPrintScreen(emptyList(), null,
+                initialToolTemplate = LabelToolTemplate.Qr, onDismiss = {}) }
+        }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("label_element_qr").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText(context.getString(R.string.label_ui_position)).performClick()
+        compose.onNodeWithTag("label_select_qr").assertIsDisplayed().performClick().assertIsSelected()
+        compose.onNodeWithText(context.getString(R.string.label_ui_advanced)).performClick()
+        compose.onNodeWithText(context.getString(R.string.label_editor_x)).assertIsDisplayed()
         LabelPrintQueueStore(context).clear()
     }
 

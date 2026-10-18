@@ -40,6 +40,7 @@ internal fun StorageLocationsScreen(
     onDismiss: () -> Unit,
     onSave: (String, String, StorageLocationSaveIntent, (OperationResult) -> Unit) -> Unit,
     onDelete: (String, (OperationResult) -> Unit) -> Unit,
+    onPrintLabel: (StorageLocationRecord) -> Unit = {},
 ) {
     var editor by remember { mutableStateOf<LocationEditor?>(null) }
     var deleteTarget by remember { mutableStateOf<StorageLocationRecord?>(null) }
@@ -109,6 +110,11 @@ internal fun StorageLocationsScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                                 ) {
+                                    TextButton(
+                                        onClick = { onPrintLabel(location) },
+                                        enabled = !busy,
+                                        modifier = Modifier.testTag("locations_print_${location.id}"),
+                                    ) { Text(stringResource(R.string.location_qr_print)) }
                                     TextButton(
                                         onClick = {
                                             operationMessage = ""

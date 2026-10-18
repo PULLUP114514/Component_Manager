@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="movement_source_location">Stock location</string>
+    <string name="movement_destination_location">Destination location</string>
+    <string name="movement_no_locations">No available locations. Manage locations in Settings first.</string>
+</resources>

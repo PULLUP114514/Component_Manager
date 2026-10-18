@@ -81,7 +81,8 @@ internal fun LabelEditorCanvas(
                             .offset(x = visibleX.dp, y = visibleY.dp)
                             .size(hitWidth, hitHeight)
                             .border(if (selectedId == element.id) 2.dp else 1.dp,
-                                if (selectedId == element.id) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                if (selectedId == element.id) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outline)
                             .background(Color.Transparent)
                             .semantics { contentDescription = element.id }
                             .testTag("label_element_${element.id}")

@@ -1,5 +1,8 @@
 package com.componentvault.android.ui.screen
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.Surface
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -27,11 +31,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -41,21 +45,23 @@ import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel as composeViewModel
 import com.componentvault.android.R
 import com.componentvault.android.data.bom.BomReleasePreview
-import com.componentvault.android.data.bom.BomSheet
 import com.componentvault.android.data.bom.BomColumnMapping
 import com.componentvault.android.data.bom.BomTableInspection
 import com.componentvault.android.data.bom.BomShortageCsvExporter
 import com.componentvault.android.data.bom.BomPreset
 import com.componentvault.android.data.bom.BomPresetStore
-import com.componentvault.android.data.bom.ComponentHubParseResult
+import com.componentvault.android.data.bom.BomProcurementStatus
+import com.componentvault.android.data.bom.BomProcurementStore
 import com.componentvault.android.data.bom.LocalImportLimits
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 internal enum class BomImportMode { Bom, Migration }
@@ -66,40 +72,65 @@ internal fun BomImportScreen(
     onDismiss: () -> Unit,
     initialMode: BomImportMode? = null,
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val currentContext = LocalContext.current
+    val context = currentContext.applicationContext
     val presetStore = remember(context) { BomPresetStore(File(context.filesDir, "bom-presets.json")) }
     val initialPresets = remember(presetStore) { runCatching { presetStore.list() } }
     var presets by remember { mutableStateOf(initialPresets.getOrDefault(emptyList())) }
-    var activePreset by remember { mutableStateOf<BomPreset?>(null) }
-    var presetToDelete by remember { mutableStateOf<BomPreset?>(null) }
-    var presetToSave by remember { mutableStateOf<BomReleasePreview?>(null) }
-    var fileBytes by remember { mutableStateOf<ByteArray?>(null) }
-    var fileName by remember { mutableStateOf("") }
-    var projectName by remember { mutableStateOf("") }
-    var productionSets by remember { mutableStateOf("1") }
-    var sheets by remember { mutableStateOf<List<BomSheet>>(emptyList()) }
-    var selectedSheet by remember { mutableStateOf<String?>(null) }
-    var inspection by remember { mutableStateOf<BomTableInspection?>(null) }
-    var columnMapping by remember { mutableStateOf<BomColumnMapping?>(null) }
-    var preview by remember { mutableStateOf<BomReleasePreview?>(null) }
-    var hubPreview by remember { mutableStateOf<ComponentHubParseResult?>(null) }
-    var selections by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var searchQueries by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var expandedSearches by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var excludedKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var mappingExpanded by rememberSaveable { mutableStateOf(false) }
-    var showAllLines by rememberSaveable { mutableStateOf(false) }
-    var message by remember { mutableStateOf(initialPresets.exceptionOrNull()?.message.orEmpty()) }
-    var messageIsError by remember { mutableStateOf(initialPresets.isFailure) }
-    var busy by remember { mutableStateOf(false) }
-    var releaseId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
-    var batchId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
-    var releaseApplied by rememberSaveable { mutableStateOf(false) }
-    var confirmKind by remember { mutableStateOf<String?>(null) }
-    var selectedMode by rememberSaveable { mutableStateOf(initialMode) }
+    val session: BomImportSession = composeViewModel()
+    val procurement: BomProcurementViewModel = composeViewModel()
+    LaunchedEffect(procurement) { procurement.refresh() }
+    val activity = remember(currentContext) {
+        generateSequence(currentContext as Context?) { (it as? ContextWrapper)?.baseContext }
+            .filterIsInstance<Activity>().firstOrNull()
+    }
+    DisposableEffect(session, activity) {
+        session.retainOnExit = false
+        onDispose {
+            if (activity?.isChangingConfigurations != true && !session.retainOnExit) session.resetSession()
+        }
+    }
+    if (session.initialized && session.entryMode != initialMode) session.resetSession()
+    if (!session.initialized) {
+        session.entryMode = initialMode
+        session.selectedMode.value = initialMode
+        session.message.value = initialPresets.exceptionOrNull()?.message.orEmpty()
+        session.messageIsError.value = initialPresets.isFailure
+        session.initialized = true
+    }
+    var activePreset by session.activePreset
+    var presetToDelete by session.presetToDelete
+    var presetToSave by session.presetToSave
+    var fileBytes by session.fileBytes
+    var fileName by session.fileName
+    var projectName by session.projectName
+    var productionSets by session.productionSets
+    var sheets by session.sheets
+    var selectedSheet by session.selectedSheet
+    var inspection by session.inspection
+    var columnMapping by session.columnMapping
+    var preview by session.preview
+    var hubPreview by session.hubPreview
+    var selections by session.selections
+    var searchQueries by session.searchQueries
+    var expandedSearches by session.expandedSearches
+    var excludedKeys by session.excludedKeys
+    var mappingExpanded by session.mappingExpanded
+    var showAllLines by session.showAllLines
+    var message by session.message
+    var messageIsError by session.messageIsError
+    var busy by session.busy
+    var releaseId by session.releaseId
+    var batchId by session.batchId
+    var releaseApplied by session.releaseApplied
+    var confirmKind by session.confirmKind
+    var clearSelectionKeys by session.clearSelectionKeys
+    var exitPending by session.exitPending
+    var procurementOffer by session.procurementOffer
+    var selectedMode by session.selectedMode
 
     fun resetFile() {
+        session.invalidatePending()
         fileBytes = null
         activePreset = null
         fileName = ""
@@ -118,6 +149,7 @@ internal fun BomImportScreen(
         message = ""
         messageIsError = false
         releaseApplied = false
+        procurementOffer = null
     }
 
     fun requestPreview() {
@@ -125,7 +157,9 @@ internal fun BomImportScreen(
         if (selectedMode == BomImportMode.Migration) {
             val migrationBytes = bytes ?: return
             busy = true
+            val token = session.token()
             viewModel.previewComponentHub(migrationBytes, skipDuplicates = false) { result ->
+                if (!session.isCurrent(token)) return@previewComponentHub
                 busy = false
                 result.onSuccess {
                     hubPreview = it
@@ -150,14 +184,17 @@ internal fun BomImportScreen(
             return
         }
         busy = true
+        val token = session.token()
         val onResult: (Result<BomReleasePreview>) -> Unit = { result ->
-            busy = false
-            result.onSuccess { preview = it; message = context.getString(R.string.bom_matching_done); messageIsError = false }
-                .onFailure {
-                    preview = null
-                    message = it.message ?: "BOM 解析失败。"
-                    messageIsError = true
-                }
+            if (session.isCurrent(token)) {
+                busy = false
+                result.onSuccess { preview = it; message = context.getString(R.string.bom_matching_done); messageIsError = false }
+                    .onFailure {
+                        preview = null
+                        message = it.message ?: "BOM 解析失败。"
+                        messageIsError = true
+                    }
+            }
         }
         val preset = activePreset
         if (preset != null) {
@@ -176,6 +213,7 @@ internal fun BomImportScreen(
     }
 
     fun openPreset(preset: BomPreset) {
+        session.invalidatePending()
         activePreset = preset
         fileBytes = null
         fileName = preset.name
@@ -193,13 +231,16 @@ internal fun BomImportScreen(
         batchId = UUID.randomUUID().toString()
         releaseApplied = false
         preview = null
+        procurementOffer = null
         requestPreview()
     }
 
     fun inspectSelected(bytes: ByteArray? = fileBytes) {
         val selectedBytes = bytes ?: return
         busy = true
+        val token = session.token()
         viewModel.inspectBom(selectedBytes, fileName, selectedSheet) { result ->
+            if (!session.isCurrent(token)) return@inspectBom
             busy = false
             result.onSuccess {
                 inspection = it
@@ -216,27 +257,38 @@ internal fun BomImportScreen(
     val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         val current = preview
         if (uri == null || current == null) return@rememberLauncherForActivityResult
-        scope.launch {
+        busy = true
+        session.launchTask { token ->
             runCatching { withContext(Dispatchers.IO) {
                 context.contentResolver.openOutputStream(uri, "w")!!.use { it.write(BomShortageCsvExporter.export(current)) }
-            } }.onSuccess {
+            } }.also { if (!session.isCurrent(token) || !currentCoroutineContext().isActive) return@launchTask }
+                .onSuccess {
+                busy = false
                 val count = BomShortageCsvExporter.shortageCount(current)
                 message = if (count == 0) "已导出 CSV；当前预览无缺料。" else "已导出 CSV，含 $count 项缺料或未匹配记录。"
                 messageIsError = false
-            }.onFailure { message = it.message ?: "CSV 导出失败。"; messageIsError = true }
+                val eligible = bomProcurementEligible(current)
+                if (eligible.isNotEmpty()) procurementOffer = BomProcurementOffer(current.parsed, eligible)
+            }.onFailure { busy = false; message = it.message ?: "CSV 导出失败。"; messageIsError = true }
         }
     }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
+        val pickingMode = selectedMode
         busy = true
-        scope.launch {
+        session.launchTask { token ->
         runCatching { withContext(Dispatchers.IO) {
             val name = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
                 } else null
-            } ?: "bom.csv"
+            } ?: error("无法识别文件名。")
+            if (pickingMode == BomImportMode.Bom) {
+                require(name.endsWith(".csv", true) || name.endsWith(".xlsx", true)) {
+                    "仅支持 CSV 或 XLSX BOM。"
+                }
+            }
             val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(8192)
@@ -251,12 +303,14 @@ internal fun BomImportScreen(
                 output.toByteArray()
             } ?: error("无法读取文件。")
             name to bytes
-        } }.onSuccess { (name, bytes) ->
+        } }.also { if (!session.isCurrent(token) || !currentCoroutineContext().isActive) return@launchTask }
+            .onSuccess { (name, bytes) ->
             fileName = name
             if (projectName.isBlank()) projectName = name.substringBeforeLast('.').ifBlank { name }
             fileBytes = bytes
             activePreset = null
             preview = null
+            procurementOffer = null
             hubPreview = null
             selections = emptyMap()
             searchQueries = emptyMap()
@@ -273,6 +327,7 @@ internal fun BomImportScreen(
             selectedSheet = null
             if (name.endsWith(".xlsx", true)) {
                 viewModel.listBomSheets(bytes) { result ->
+                    if (!session.isCurrent(token)) return@listBomSheets
                     busy = false
                     result.onSuccess {
                         sheets = it
@@ -297,15 +352,9 @@ internal fun BomImportScreen(
         }),
         onBack = {
             when {
-                preview != null || hubPreview != null -> {
-                    preview = null
-                    hubPreview = null
-                    message = ""
-                    messageIsError = false
-                }
-                fileBytes != null -> resetFile()
+                preview != null || hubPreview != null || fileBytes != null || activePreset != null -> exitPending = true
                 initialMode == null && selectedMode != null -> selectedMode = null
-                else -> onDismiss()
+                else -> { session.resetSession(); onDismiss() }
             }
         },
         navigationEnabled = !busy,
@@ -368,7 +417,11 @@ internal fun BomImportScreen(
                         enabled = !busy,
                         onClick = {
                             picker.launch(if (selectedMode == BomImportMode.Bom) {
-                                arrayOf("text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                                arrayOf(
+                                    "text/csv", "text/comma-separated-values", "application/csv",
+                                    "application/vnd.ms-excel", "text/plain",
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                )
                             } else arrayOf("application/json"))
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -487,6 +540,10 @@ internal fun BomImportScreen(
             val problemLines = current.matchingLines.filter { it.componentId == null || it.componentId in shortageIds }
             val visibleLines = if (showAllLines) current.matchingLines else problemLines
             val readyCount = current.matchingLines.size - problemLines.size
+            val procurementProjectKey = BomProcurementStore.projectKey(current.parsed)
+            val procurementEntries = procurement.entries.filter { it.projectKey == procurementProjectKey }
+            val procurementByRequirement = procurementEntries.associateBy { it.requirementCanonicalKey }
+            val procurementEligibleKeys = bomProcurementEligible(current).mapTo(mutableSetOf()) { it.identity.canonicalKey }
             Text(stringResource(R.string.bom_match_counts, readyCount, problemLines.size, skippedRequirements.size), style = MaterialTheme.typography.titleMedium)
             Text(
                 stringResource(if (current.canCommit) R.string.bom_ready_to_review else if (current.lines.isEmpty()) R.string.bom_restore_to_release else R.string.bom_resolve_hint),
@@ -504,6 +561,15 @@ internal fun BomImportScreen(
                         Text(stringResource(R.string.bom_save_preset))
                     }
                 }
+                item {
+                    BomProcurementSummary(
+                        inTransit = procurementEntries.count { it.status == BomProcurementStatus.InTransit },
+                        arrived = procurementEntries.count { it.status == BomProcurementStatus.ArrivedNeedsReview },
+                        error = procurement.error,
+                        enabled = !procurement.busy,
+                        onReload = procurement::refresh,
+                    )
+                }
                 if (visibleLines.isEmpty()) item {
                     Text(stringResource(R.string.bom_no_issues), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -511,8 +577,14 @@ internal fun BomImportScreen(
                     val requirementKey = line.requirement.identity.canonicalKey
                     val selectionKeys = line.selectionKeys
                     val searchExpanded = requirementKey in expandedSearches
+                    val statusColor = if (line.componentId == null) MaterialTheme.colorScheme.errorContainer
+                        else MaterialTheme.colorScheme.primaryContainer
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), Arrangement.spacedBy(4.dp)) {
+                            BomMatchStatus(
+                                stringResource(if (line.componentId == null) R.string.bom_status_unmatched else R.string.bom_status_matched),
+                                statusColor,
+                            )
                             Text(line.requirement.sku ?: line.requirement.model ?: "未识别物料")
                             val details = listOfNotNull(
                                 line.requirement.name?.takeIf(String::isNotBlank),
@@ -573,19 +645,25 @@ internal fun BomImportScreen(
                                     onClick = ::requestPreview,
                                     modifier = Modifier.fillMaxWidth(),
                                 ) { Text(stringResource(R.string.bom_match_search_action)) }
-                                line.candidates
-                                    .filterNot { it.inventoryId == line.componentId }
-                                    .forEach { candidate ->
+                                line.candidates.forEach { candidate ->
                                         TextButton(
                                             enabled = !busy,
                                             onClick = {
-                                                selections = selections + selectionKeys.associateWith { candidate.inventoryId }
-                                                requestPreview()
+                                                 if (candidate.inventoryId == line.componentId) {
+                                                     clearSelectionKeys = selectionKeys
+                                                 } else {
+                                                     selections = selections + selectionKeys.associateWith { candidate.inventoryId }
+                                                     requestPreview()
+                                                 }
                                             },
-                                        ) { Text(candidate.matchingLabel()) }
+                                         ) {
+                                             Text(if (candidate.inventoryId == line.componentId) {
+                                                 stringResource(R.string.bom_selected_tap_to_clear, candidate.matchingLabel())
+                                             } else candidate.matchingLabel())
+                                         }
                                     }
                                 if (selectionKeys.firstNotNullOfOrNull(searchQueries::get).orEmpty().isNotBlank() &&
-                                    line.candidates.none { it.inventoryId != line.componentId }
+                                     line.candidates.isEmpty()
                                 ) {
                                     Text(stringResource(R.string.bom_match_search_empty))
                                 }
@@ -594,14 +672,29 @@ internal fun BomImportScreen(
                                 excludedKeys = excludedKeys + requirementKey
                                 requestPreview()
                             }) { Text(stringResource(R.string.bom_skip_item)) }
+                            BomProcurementActions(
+                                entry = procurementByRequirement[requirementKey],
+                                eligible = requirementKey in procurementEligibleKeys,
+                                enabled = !busy && !procurement.busy,
+                                onMark = { procurement.mark(current.parsed, listOf(line.requirement)) },
+                                onRemove = { procurementByRequirement[requirementKey]?.let(procurement::remove) },
+                            )
                         }
                     }
                 }
                 items(skippedRequirements, key = { "skip:${it.identity.canonicalKey}" }) { requirement ->
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), Arrangement.spacedBy(4.dp)) {
+                            BomMatchStatus(stringResource(R.string.bom_status_excluded), MaterialTheme.colorScheme.secondaryContainer)
                             Text(stringResource(R.string.bom_skipped_item, requirement.sku ?: requirement.model ?: requirement.name ?: stringResource(R.string.bom_mapping_unnamed)))
                             Text(stringResource(R.string.bom_skipped_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            BomProcurementActions(
+                                entry = procurementByRequirement[requirement.identity.canonicalKey],
+                                eligible = false,
+                                enabled = !busy && !procurement.busy,
+                                onMark = {},
+                                onRemove = { procurementByRequirement[requirement.identity.canonicalKey]?.let(procurement::remove) },
+                            )
                             TextButton(enabled = !busy, onClick = {
                                 excludedKeys = excludedKeys - requirement.identity.canonicalKey
                                 requestPreview()
@@ -660,7 +753,9 @@ internal fun BomImportScreen(
                     onClick = {
                         val bytes = fileBytes ?: return@OutlinedButton
                         busy = true
+                        val token = session.token()
                         viewModel.previewComponentHub(bytes, skipDuplicates = true) { result ->
+                            if (!session.isCurrent(token)) return@previewComponentHub
                             busy = false
                             result.onSuccess { hubPreview = it; message = "已明确跳过 ${it.skippedDuplicateCount} 个冲突。"; messageIsError = false }
                                 .onFailure { message = it.message ?: "无法应用跳过策略。"; messageIsError = true }
@@ -677,6 +772,74 @@ internal fun BomImportScreen(
             }
         }
     }
+    procurementOffer?.let { offer ->
+        AlertDialog(
+            onDismissRequest = { procurementOffer = null },
+            title = { Text(stringResource(R.string.bom_procurement_export_title)) },
+            text = { Text(stringResource(R.string.bom_procurement_export_body, offer.requirements.size)) },
+            confirmButton = {
+                Button(enabled = !procurement.busy, onClick = {
+                    procurement.mark(offer.parsed, offer.requirements)
+                    procurementOffer = null
+                }) { Text(stringResource(R.string.bom_procurement_mark)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { procurementOffer = null }) {
+                    Text(stringResource(R.string.bom_procurement_not_now))
+                }
+            },
+        )
+    }
+    if (exitPending) {
+        AlertDialog(
+            onDismissRequest = { exitPending = false },
+            title = { Text(stringResource(R.string.bom_exit_title)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.bom_exit_message))
+                    if (preview != null || hubPreview != null) {
+                        TextButton(onClick = {
+                            preview = null
+                            hubPreview = null
+                            message = ""
+                            messageIsError = false
+                            exitPending = false
+                        }) { Text(stringResource(R.string.bom_exit_back_to_setup)) }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    exitPending = false
+                    session.retainOnExit = true
+                    onDismiss()
+                }) { Text(stringResource(R.string.bom_exit_keep)) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { exitPending = false }) { Text(stringResource(R.string.bom_exit_cancel)) }
+                    TextButton(onClick = { session.resetSession(); onDismiss() }) {
+                        Text(stringResource(R.string.bom_exit_discard))
+                    }
+                }
+            },
+        )
+    }
+    clearSelectionKeys?.let { keys ->
+        AlertDialog(
+            onDismissRequest = { clearSelectionKeys = null },
+            title = { Text(stringResource(R.string.bom_clear_match_title)) },
+            text = { Text(stringResource(R.string.bom_clear_match_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    selections = clearBomSelections(selections, keys)
+                    clearSelectionKeys = null
+                    requestPreview()
+                }) { Text(stringResource(R.string.bom_clear_match_confirm)) }
+            },
+            dismissButton = { TextButton(onClick = { clearSelectionKeys = null }) { Text(stringResource(R.string.bom_clear_match_cancel)) } },
+        )
+    }
     confirmKind?.let { kind ->
         val bom = preview
         val hub = hubPreview
@@ -691,7 +854,9 @@ internal fun BomImportScreen(
                             items(bom.lines, key = { it.requirement.identity.canonicalKey }) { line ->
                                 Text(
                                     "${line.componentSku ?: "未匹配"} × ${line.requirement.requiredQuantity}" +
-                                        line.allocationPlan.joinToString(prefix = "（", postfix = "）") { "${it.locationId} ${it.quantity}" },
+                                        line.allocationPlan.joinToString(prefix = "（", postfix = "）") {
+                                            "${displayLocationName(it.locationId, viewModel.uiState.inventory.storageLocations, it.locationId)} ${it.quantity}"
+                                        },
                                 )
                             }
                         }
@@ -703,8 +868,10 @@ internal fun BomImportScreen(
             confirmButton = {
                 Button(enabled = !busy, onClick = {
                     busy = true
+                    val token = session.token()
                     if (kind == "bom" && bom != null) {
                         viewModel.commitBomRelease(bom, releaseId, batchId) { result ->
+                            if (!session.isCurrent(token)) return@commitBomRelease
                             busy = false
                             confirmKind = null
                             message = result.message
@@ -713,6 +880,7 @@ internal fun BomImportScreen(
                         }
                     } else if (hub != null) {
                         viewModel.importComponentHub(hub) { result ->
+                            if (!session.isCurrent(token)) return@importComponentHub
                             busy = false
                             confirmKind = null
                             message = result.message
@@ -779,6 +947,13 @@ internal fun BomImportScreen(
             },
             dismissButton = { TextButton(onClick = { presetToDelete = null }) { Text("取消") } },
         )
+    }
+}
+
+@Composable
+private fun BomMatchStatus(text: String, color: androidx.compose.ui.graphics.Color) {
+    Surface(color = color, shape = MaterialTheme.shapes.small) {
+        Text(text, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
     }
 }
 

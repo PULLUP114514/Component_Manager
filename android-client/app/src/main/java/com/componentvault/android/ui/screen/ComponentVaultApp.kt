@@ -25,8 +25,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.componentvault.android.data.ComponentImportParser
 import com.componentvault.android.data.LabelPrintQueueCodec
+import com.componentvault.android.data.LocationQrCodec
 import com.componentvault.android.data.M1TestPaperProfile
 import com.componentvault.android.model.ComponentDraft
 import com.componentvault.android.model.ComponentRecord
@@ -50,6 +53,7 @@ fun ComponentVaultApp(
     val uiState = viewModel.uiState
     val layoutMode = rememberInventoryLayoutMode()
     val strings = runtimeComponentVaultStrings()
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val componentSaveCoordinator = remember(viewModel) {
         ComponentSaveCoordinator(
@@ -90,6 +94,8 @@ fun ComponentVaultApp(
     var bomImportVisible by rememberSaveable { mutableStateOf(false) }
     var bomImportInitialMode by rememberSaveable { mutableStateOf<BomImportMode?>(null) }
     var storageLocationsVisible by rememberSaveable { mutableStateOf(false) }
+    var inventoryScannerVisible by rememberSaveable { mutableStateOf(false) }
+    var inventoryScanMessage by remember { mutableStateOf<String?>(null) }
     var inventoryBackupVisible by rememberSaveable { mutableStateOf(false) }
     var batchJlcVisible by rememberSaveable { mutableStateOf(false) }
     var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
@@ -102,6 +108,14 @@ fun ComponentVaultApp(
     var labelToolTemplate by rememberSaveable { mutableStateOf(LabelToolTemplate.Component) }
     var labelToolPaper by remember { mutableStateOf<M1TestPaperProfile?>(null) }
     var labelPrintFromToolPicker by rememberSaveable { mutableStateOf(false) }
+    var locationLabelTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(inventoryScanMessage) {
+        inventoryScanMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            inventoryScanMessage = null
+        }
+    }
 
     LaunchedEffect(uiState.movements.batchSession.totalScans) {
         val totalScans = uiState.movements.batchSession.totalScans
@@ -155,6 +169,24 @@ fun ComponentVaultApp(
 
     fun closeImportSurface() {
         importSurfaceVisible = false
+    }
+
+    fun applyScannedLocation(raw: String) {
+        inventoryScannerVisible = false
+        closeImportSurface()
+        val locationId = LocationQrCodec.decode(raw)
+        val location = uiState.inventory.storageLocations.firstOrNull {
+            it.id == locationId && !it.deleted
+        }
+        if (locationId == null) {
+            inventoryScanMessage = context.getString(R.string.location_qr_invalid)
+        } else if (location == null) {
+            inventoryScanMessage = context.getString(R.string.location_qr_unknown)
+        } else {
+            destination = InventoryDestination.Inventory
+            resetSecondaryRoutes()
+            viewModel.focusScannedLocation(location.id)
+        }
     }
 
     fun openComponentEditor(
@@ -258,6 +290,38 @@ fun ComponentVaultApp(
             )
         }
         when {
+            inventoryScannerVisible -> {
+                JlcQrScannerSurface(
+                    onDismiss = { inventoryScannerVisible = false },
+                    onScanResult = { raw ->
+                        inventoryScannerVisible = false
+                        if (LocationQrCodec.isLocationCode(raw)) {
+                            applyScannedLocation(raw)
+                        } else {
+                            val candidate = runCatching { ComponentImportParser.parseScannedQr(raw) }.getOrNull()
+                            val component = candidate?.let { match -> uiState.availableComponents.firstOrNull {
+                                it.sku.equals(match.sku, ignoreCase = true) && !it.deleted
+                            } }
+                            if (component == null) {
+                                inventoryScanMessage = context.getString(
+                                    if (candidate == null) R.string.location_qr_unrecognized
+                                    else R.string.location_qr_component_unknown,
+                                )
+                            } else {
+                                destination = InventoryDestination.Inventory
+                                resetSecondaryRoutes()
+                                viewModel.focusScannedComponent(component.sku)
+                                viewModel.selectComponent(component.id)
+                                if (!layoutMode.showsListDetail) compactDetailComponentId = component.id
+                            }
+                        }
+                    },
+                    title = context.getString(R.string.location_qr_scan_title),
+                    scanningHint = context.getString(R.string.location_qr_scan_hint),
+                    scannerMode = JlcQrScannerMode.InventoryLookup,
+                )
+            }
+
             uiState.movements.scan.isScannerVisible -> {
                 JlcQrScannerSurface(
                     onDismiss = {
@@ -349,6 +413,7 @@ fun ComponentVaultApp(
                         viewModel.saveStorageLocation(id, name, com.componentvault.android.model.StorageLocationSaveIntent.Create, complete)
                     },
                     onDismiss = ::closeImportSurface,
+                    onLocationCodeScan = ::applyScannedLocation,
                     onSaveImportedComponent = { draft, sourceCandidate, onComplete ->
                         submitImportedDraft(
                             draft = draft,
@@ -381,6 +446,14 @@ fun ComponentVaultApp(
                     onDismiss = { storageLocationsVisible = false },
                     onSave = viewModel::saveStorageLocation,
                     onDelete = viewModel::deleteStorageLocation,
+                    onPrintLabel = { location ->
+                        locationLabelTargetId = location.id
+                        storageLocationsVisible = false
+                        labelPrintSeed = null
+                        labelToolTemplate = LabelToolTemplate.Qr
+                        labelPrintFromToolPicker = false
+                        labelPrintVisible = true
+                    },
                 )
             }
 
@@ -400,6 +473,7 @@ fun ComponentVaultApp(
 
             labelToolPickerVisible -> LabelToolTemplatePicker(
                 onSelect = { template, paper ->
+                    locationLabelTargetId = null
                     labelToolTemplate = template
                     labelToolPaper = paper
                     labelPrintFromToolPicker = true
@@ -414,9 +488,17 @@ fun ComponentVaultApp(
                 initialSeed = labelPrintSeed,
                 initialToolTemplate = if (labelPrintSeed != null) LabelToolTemplate.Component else labelToolTemplate,
                 initialPaper = if (labelPrintFromToolPicker) labelToolPaper else null,
+                initialFreeTitle = locationLabelTargetId?.let { id ->
+                    uiState.inventory.storageLocations.firstOrNull { it.id == id }?.let { location ->
+                        context.getString(R.string.location_qr_label_description, location.name, location.id)
+                    }
+                },
+                initialFreeQrPayload = locationLabelTargetId?.let(LocationQrCodec::encode),
                 onDismiss = {
                     labelPrintVisible = false
                     labelPrintSeed = null
+                    if (locationLabelTargetId != null) storageLocationsVisible = true
+                    locationLabelTargetId = null
                     if (labelPrintFromToolPicker) labelToolPickerVisible = true
                 },
             )
@@ -465,6 +547,7 @@ fun ComponentVaultApp(
                     },
                     onCategoryChange = viewModel::updateCategoryFilter,
                     onLocationChange = viewModel::updateLocationFilter,
+                    onScanInventory = { inventoryScannerVisible = true },
                     onSortChange = viewModel::updateSort,
                     onSelectComponent = viewModel::selectComponent,
                     onOpenComponentDetail = { componentId ->
@@ -482,6 +565,7 @@ fun ComponentVaultApp(
                         }
                     },
                     onOpenBluetoothPrint = {
+                        locationLabelTargetId = null
                         labelPrintSeed = null
                         labelPrintFromToolPicker = false
                         labelToolPickerVisible = true
@@ -631,6 +715,7 @@ fun ComponentVaultApp(
                         viewModel.saveStorageLocation(id, name, com.componentvault.android.model.StorageLocationSaveIntent.Create, complete)
                     },
                     onDismiss = ::closeImportSurface,
+                    onLocationCodeScan = ::applyScannedLocation,
                     onSaveImportedComponent = { draft, sourceCandidate, onComplete ->
                         submitImportedDraft(
                             draft = draft,

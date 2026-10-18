@@ -1,0 +1,12 @@
+<resources>
+    <string name="location_qr_scan">Scan</string>
+    <string name="location_qr_scan_title">Scan a component or location</string>
+    <string name="location_qr_scan_hint">Scan a component label, JLC package QR, or location label.</string>
+    <string name="location_qr_print">Print location label</string>
+    <string name="location_qr_label_preview">Location label</string>
+    <string name="location_qr_label_description">%1$s · %2$s</string>
+    <string name="location_qr_invalid">Invalid location QR. Reprint the label and scan again.</string>
+    <string name="location_qr_unknown">This location is missing or deleted in the current local inventory. Check location management and try again.</string>
+    <string name="location_qr_component_unknown">This component is not in the current local inventory. Check its package in Import.</string>
+    <string name="location_qr_unrecognized">No component or location QR was recognized. Try again.</string>
+</resources>

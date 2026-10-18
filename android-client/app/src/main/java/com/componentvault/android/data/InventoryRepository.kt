@@ -410,7 +410,7 @@ class InventoryRepository(
     ): OperationResult = writeService.transferComponentsBatch(sourceLocationId, destinationLocationId, lines)
 
     suspend fun loadStorageLocations(): List<StorageLocationRecord> = withContext(Dispatchers.IO) {
-        databaseHelper.readableDatabase.use { db ->
+        val locations = databaseHelper.readableDatabase.use { db ->
             db.rawQuery(
                 "SELECT id, name, updated_at, deleted FROM storage_locations WHERE deleted = 0 ORDER BY name, id",
                 null,
@@ -421,6 +421,13 @@ class InventoryRepository(
                 ))
             } }
         }
+        // Imported defaults can outlive a locally deleted or synced-away location.
+        // Clear only the stale remembered choice; keep the user's configured default.
+        val last = preferences.getString(KEY_LAST_IMPORT_LOCATION, "").orEmpty()
+        if (last.isNotBlank() && locations.none { it.id == last }) {
+            preferences.edit().remove(KEY_LAST_IMPORT_LOCATION).apply()
+        }
+        locations
     }
 
     internal suspend fun findExistingImportTarget(sku: String): ExistingImportTarget? = withContext(Dispatchers.IO) {

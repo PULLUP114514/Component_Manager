@@ -84,6 +84,7 @@ internal fun JlcImportSurface(
     onDismiss: () -> Unit,
     onSaveImportedComponent: (ComponentDraft, ComponentImportCandidate, (OperationResult) -> Unit) -> Unit,
     onOpenFullEditor: (ComponentDraft, ComponentImportCandidate) -> Unit,
+    onLocationCodeScan: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val repository = remember(context) { InventoryRepository(context) }
@@ -344,14 +345,19 @@ internal fun JlcImportSurface(
                 onDismiss = { scannerMode = null },
                 onScanResult = { result ->
                     scannerMode = null
-                    runCatching { ComponentImportParser.parseScannedQr(result) }
-                        .onSuccess(::setBaseCandidate)
-                        .onFailure {
-                            AppDiagnostics.record("scanner_choice", "valid" to false, "type" to it.javaClass)
-                            rawInput = result
-                            feedbackMessage = it.message ?: strings.importer.scannerFailedDescription
-                        }
+                    if (com.componentvault.android.data.LocationQrCodec.isLocationCode(result)) {
+                        onLocationCodeScan(result)
+                    } else {
+                        runCatching { ComponentImportParser.parseScannedQr(result) }
+                            .onSuccess(::setBaseCandidate)
+                            .onFailure {
+                                AppDiagnostics.record("scanner_choice", "valid" to false, "type" to it.javaClass)
+                                rawInput = result
+                                feedbackMessage = it.message ?: strings.importer.scannerFailedDescription
+                            }
+                    }
                 },
+                scannerMode = JlcQrScannerMode.InventoryLookup,
             )
             return
         }

@@ -153,6 +153,14 @@ class InventoryViewModel(
         updateInventoryFilters(uiState.inventory.filters.copy(location = location))
     }
 
+    fun focusScannedLocation(locationId: String) {
+        updateInventoryFilters(InventoryFiltersUiState(location = locationId))
+    }
+
+    fun focusScannedComponent(sku: String) {
+        updateInventoryFilters(InventoryFiltersUiState(query = sku))
+    }
+
     fun updateSort(sort: InventorySortOption) {
         updateInventoryFilters(uiState.inventory.filters.copy(sort = sort))
     }

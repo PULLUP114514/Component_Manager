@@ -114,6 +114,8 @@ internal fun BluetoothLabelPrintScreen(
     initialTextTemplateId: String = ComponentTextLabelTemplate.default.id,
     initialToolTemplate: LabelToolTemplate = LabelToolTemplate.Component,
     initialPaper: M1TestPaperProfile? = null,
+    initialFreeTitle: String? = null,
+    initialFreeQrPayload: String? = null,
     onDismiss: () -> Unit,
 ) {
     val freeMode = initialToolTemplate !in setOf(
@@ -158,7 +160,9 @@ internal fun BluetoothLabelPrintScreen(
     )) { mutableStateMapOf<String, String>() }
     var search by rememberSaveable { mutableStateOf("") }
     var troubleshootingExpanded by remember { mutableStateOf(false) }
-    var freeTitle by rememberSaveable { mutableStateOf(context.getString(when (initialToolTemplate) {
+    var freeTitle by rememberSaveable { mutableStateOf(initialFreeTitle.takeIf {
+        freeTemplate == FreeLabelTemplate.Qr
+    } ?: context.getString(when (initialToolTemplate) {
         LabelToolTemplate.Qr -> R.string.label_tool_qr
         LabelToolTemplate.Text -> R.string.label_tool_text
         else -> R.string.label_tool_free
@@ -290,7 +294,14 @@ internal fun BluetoothLabelPrintScreen(
     val activeDesign = if (previewPaper != null && (previewSeed != null || previewFreeLabel != null)) {
         if (hasQueue) previewQueueItem?.design
         else if (previewFreeLabel != null) draftDesigns["__free__"]
-            ?: runCatching { LabelDesign.free(freeTemplate, previewPaper) }.getOrNull()
+            ?: runCatching {
+                LabelDesign.free(freeTemplate, previewPaper).let { design ->
+                    if (freeTemplate == FreeLabelTemplate.Qr && initialFreeQrPayload != null)
+                        design.withText("text", initialFreeTitle.orEmpty())
+                            .withQrPayload("qr", initialFreeQrPayload)
+                    else design
+                }
+            }.getOrNull()
         else requireNotNull(previewSeed).let { component ->
             draftDesigns[component.sku]
                 ?: runCatching { LabelDesign.default(component, previewTemplate, previewTextTemplate, previewPaper) }.getOrNull()
@@ -596,16 +607,20 @@ internal fun BluetoothLabelPrintScreen(
             }
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (sheetPanel == "position")
+                Text(stringResource(R.string.label_ui_position), style = MaterialTheme.typography.titleLarge)
+            if ((sheetPanel == "content" || sheetPanel == "position") && activeDesign != null)
+                Row(Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    activeDesign.elements.forEach { element ->
+                        FilterChip(selected = selectedElementId == element.id,
+                            onClick = { selectedElementId = element.id; invalidGeometryFields = arrayListOf() },
+                            label = { Text(elementCaption(element, 16)) },
+                            modifier = Modifier.testTag("label_select_${element.id}"))
+                    }
+                }
             when (sheetPanel) {
                 "content" -> {
-                    if (activeDesign != null) Row(Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        activeDesign.elements.forEach { element ->
-                            FilterChip(selected = selectedElementId == element.id,
-                                onClick = { selectedElementId = element.id; invalidGeometryFields = arrayListOf() },
-                                label = { Text(elementCaption(element, 16)) })
-                        }
-                    }
                     if (selectedElement == null) Text(stringResource(R.string.label_ui_select_element),
                         style = MaterialTheme.typography.bodySmall)
                     else if (selectedElement.type == LabelElementType.Text) {
@@ -622,7 +637,6 @@ internal fun BluetoothLabelPrintScreen(
                         style = MaterialTheme.typography.bodySmall)
                 }
                 "position" -> {
-                    Text(stringResource(R.string.label_ui_position), style = MaterialTheme.typography.titleLarge)
                     Text(stringResource(R.string.label_editor_preview_hint),
                         style = MaterialTheme.typography.bodySmall)
                     if (selectedElement == null) Text(stringResource(R.string.label_ui_select_element))

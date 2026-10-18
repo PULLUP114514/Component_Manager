@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bom_status_matched">已匹配</string>
+    <string name="bom_status_unmatched">未匹配</string>
+    <string name="bom_status_excluded">不出料</string>
+    <string name="bom_selected_tap_to_clear">已选择：%1$s · 再次点击可取消</string>
+    <string name="bom_clear_match_title">取消当前匹配？</string>
+    <string name="bom_clear_match_message">此 BOM 项将保持未匹配，直到您重新选择库存元件。</string>
+    <string name="bom_clear_match_confirm">取消匹配</string>
+    <string name="bom_clear_match_cancel">保留匹配</string>
+    <string name="bom_exit_title">退出导入？</string>
+    <string name="bom_exit_message">可暂存本次进度，下次从同一入口继续；也可以明确放弃。</string>
+    <string name="bom_exit_keep">是，暂存并退出</string>
+    <string name="bom_exit_discard">放弃进度</string>
+    <string name="bom_exit_cancel">留在此页</string>
+    <string name="bom_exit_back_to_setup">返回导入设置</string>
+</resources>

@@ -13,8 +13,11 @@ import com.componentvault.android.model.MovementEntryDraft
 import com.componentvault.android.model.OperationResult
 import com.componentvault.android.model.StorageLocationSaveIntent
 import com.componentvault.android.model.parseImportDescription
+import com.componentvault.android.data.bom.BomInboundItem
+import com.componentvault.android.data.bom.BomProcurementStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 internal class InventoryWriteService(
@@ -92,13 +95,17 @@ internal class InventoryWriteService(
                 CategoryLearningStore(appContext).learn(sourceCandidate, draft.category)
             }
 
+            val reminder = if (draft.id == null && draft.quantity > 0)
+                remindInbound(listOf(BomInboundItem(draft.sku, parsedDescription.model, draft.packageName)))
+            else ""
+
             OperationResult(
                 isSuccess = true,
                 message = if (draft.id == null) {
                     text(R.string.sync_component_created_local)
                 } else {
                     text(R.string.sync_component_saved_local)
-                },
+                } + reminder,
                 entityId = componentId,
             )
         } catch (exception: Exception) {
@@ -214,7 +221,8 @@ internal class InventoryWriteService(
                     db.setTransactionSuccessful()
                 } finally { db.endTransaction() }
             }
-            OperationResult(true, "已追加 $quantity 个，当前库存 $newTotal。", target.componentId)
+            OperationResult(true, "已追加 $quantity 个，当前库存 $newTotal。" +
+                remindInbound(listOf(inboundForComponent(target.componentId, target.sku))), target.componentId)
         }.getOrElse { OperationResult(false, it.message ?: "追加库存失败。") }
     }
 
@@ -230,6 +238,7 @@ internal class InventoryWriteService(
             require(rows.isNotEmpty()) { "没有可提交的包装。" }
             var committedCount = 0
             var skippedCount = 0
+            var committedItems = emptyList<BomInboundItem>()
             databaseHelper.writableDatabase.use { db ->
                 db.beginTransaction()
                 try {
@@ -321,12 +330,17 @@ internal class InventoryWriteService(
                         })
                     }
                     committedCount = planned.size
+                    committedItems = planned.map { item ->
+                        BomInboundItem(item.sku, parseImportDescription(item.row.description).model,
+                            item.row.packageName)
+                    }
                     db.setTransactionSuccessful()
                 } finally {
                     db.endTransaction()
                 }
             }
-            OperationResult(true, "已批量入库 $committedCount 条明细；跳过已提交 $skippedCount 条。")
+            OperationResult(true, "已批量入库 $committedCount 条明细；跳过已提交 $skippedCount 条。" +
+                remindInbound(committedItems))
         }.getOrElse { OperationResult(false, it.message ?: "批量入库失败。") }
     }
 
@@ -737,6 +751,27 @@ internal class InventoryWriteService(
     ): Int = when (movementType.lowercase(Locale.US)) {
         "adjustment" -> quantity
         else -> kotlin.math.abs(quantity)
+    }
+
+    private fun inboundForComponent(componentId: String, sku: String): BomInboundItem =
+        runCatching {
+            databaseHelper.readableDatabase.use { db ->
+                db.rawQuery("SELECT package_name,description FROM components WHERE id=?", arrayOf(componentId))
+                    .use { cursor ->
+                        if (!cursor.moveToFirst()) BomInboundItem(sku, null, null)
+                        else BomInboundItem(sku, parseImportDescription(cursor.getString(1)).model,
+                            cursor.getString(0))
+                    }
+            }
+        }.getOrElse { BomInboundItem(sku, null, null) }
+
+    private fun remindInbound(items: List<BomInboundItem>): String {
+        if (items.isEmpty()) return ""
+        return runCatching {
+            val arrived = BomProcurementStore(File(appContext.filesDir, "bom-procurement.json"))
+                .matchInboundAll(items)
+            if (arrived.isEmpty()) "" else "\n" + text(R.string.bom_procurement_arrival_notice, arrived.size)
+        }.getOrElse { "\n" + text(R.string.bom_procurement_reminder_update_failed) }
     }
 
     private fun text(@StringRes resId: Int, vararg args: Any): String = appContext.getString(resId, *args)
