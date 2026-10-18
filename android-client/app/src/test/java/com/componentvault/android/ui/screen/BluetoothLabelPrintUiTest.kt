@@ -193,6 +193,7 @@ class BluetoothLabelPrintUiTest {
     }
 
     @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun positionSheetCanSelectAFieldWithoutVisiblePrintContent() {
         LabelPrintQueueStore(context).clear()
         setLabelContent {
@@ -205,6 +206,7 @@ class BluetoothLabelPrintUiTest {
         compose.onNodeWithText(context.getString(R.string.label_ui_position)).performClick()
         compose.onNodeWithTag("label_select_qr").assertIsDisplayed().performClick().assertIsSelected()
         compose.onNodeWithText(context.getString(R.string.label_ui_advanced)).performClick()
+        compose.onNodeWithText(context.getString(R.string.label_editor_x)).performScrollTo()
         compose.onNodeWithText(context.getString(R.string.label_editor_x)).assertIsDisplayed()
         LabelPrintQueueStore(context).clear()
     }

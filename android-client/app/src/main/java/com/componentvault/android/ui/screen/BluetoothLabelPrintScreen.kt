@@ -38,6 +38,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -595,7 +596,10 @@ internal fun BluetoothLabelPrintScreen(
         }
     }
 
-    if (sheetPanel != null) ModalBottomSheet(onDismissRequest = { sheetPanel = null }) {
+    if (sheetPanel != null) ModalBottomSheet(
+        onDismissRequest = { sheetPanel = null },
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
         Column(Modifier.fillMaxWidth().imePadding()) {
             if (sheetPanel == "content") Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically) {
