@@ -9,10 +9,13 @@
 - `ViewModels/ComponentEditorViewModel.cs` 管理表单字段、库位选择、新建库位草稿、明确的商品来源及请求校验；准备或取消编辑不写数据库。
 - `Views/Components/ComponentEditorDialog.cs` 管理表单控件和商城查询交互；`ComponentsView` 保留页面入口与确认操作。
 - `Services/InventoryEditingService.cs` 判断保存/追加库存，SKU 查询来自数据库，不依赖筛选后的可见集合，也不解析说明文字判断导入来源。
-- `Services/InventoryStore.cs` 保留写入与同步事务，以及原有调用接口。编辑器新建库位与元件保存或追加库存、流水、同步队列处于同一事务；失败回滚，保持总库存及多库位分配语义。独立管理库位仍可独立保存。
+- `Services/InventoryStore.cs` 保留原有调用接口、同步配置与同步协调，库存写入委托给 `Services/InventoryWrites/`：`InventoryComponentWriter` 管理元件保存和软删除；`InventoryLocationWriter` 管理库位；`InventoryStockWriter` 管理出入库和调拨；`InventoryBatchWriter` 管理批量入库和商城追加；`InventoryBomImportWriter` 管理 BOM 扣料和 Component Hub 导入。共享 SQL 辅助只负责时间戳、分配、库位引用和同步队列写入。
+- 各写入操作保留原事务边界：编辑器新建库位与元件保存或追加库存、流水、同步队列处于同一事务；失败回滚，保持总库存及多库位分配语义。独立管理库位仍可独立保存。
 - `ViewModels/InventoryViewModel.cs` 独立管理库存读取、搜索、分类/库位筛选、排序和选中项。刷新前保存选择 ID，忽略控件重建选项时的临时空选择；`MainViewModel` 保留页面绑定入口和跨模块协调，连接测试与同步仍串行。
 - `Services/InventoryDatabase.cs` 负责连接、原有 schema 初始化、迁移和迁移前备份；`Services/InventoryQueries.cs` 负责只读查询和实体映射，事务内部读取继续复用写入连接。未更改数据库路径、表结构、同步协议，也不维护第二套库存数据库。
-- 主 ViewModel 的概览、流水、同步以及 Store 的写入/同步仍待后续逐模块拆分；本阶段没有把全部代码重写。
+- Windows `StorageLocationDisplay` 在读取后补充显示名称，Android 界面从共享库位列表解析名称；筛选、保存和同步仍使用稳定 ID。缺失历史名称时回退原值，不修改用户已有标识。同名 Windows 库位筛选项附带 ID 区分。
+- Windows 删除库位只检查活动元件的正库存分配；已删除元件的历史分配、流水与同步删除标记继续保留。同步已删除元件的历史分配不会重新激活已删除库位。
+- 主 ViewModel 的概览、流水、同步以及 Store 的同步协调仍待后续逐模块拆分；本阶段没有把全部代码重写。
 
 Android 导入页创建库位统一调用主 ViewModel，完成后刷新共享库存状态。完整编辑器在应用根节点使用同一组合位置，紧凑全屏与宽屏对话框切换不另建草稿状态。完整编辑器的文字、数量、库位以及导入来源使用 Compose 保存状态；待提交扫码批次通过 `SavedStateHandle` 保存用户输入，重建时重新读取当前库存，恢复到复核状态，不自动执行库存写入。取消或成功后清理草稿，提交失败保留供修正。已采纳的本地图片随编辑会话恢复；明确取消（包括系统返回）才删除会话新建图片，保存成功保留采用的图片。系统保存状态恢复不等同于长期草稿备份，不保证强制停止或设备重启恢复；提交期间中断应先核对记录，避免手动重复入库/出库。
 

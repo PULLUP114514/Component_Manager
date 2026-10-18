@@ -70,6 +70,7 @@ import com.componentvault.android.model.officialParameters
 import com.componentvault.android.model.officialParameterKind
 import com.componentvault.android.model.StockMovementRecord
 import com.componentvault.android.model.StockUsageSummary
+import com.componentvault.android.model.StorageLocationRecord
 import com.componentvault.android.ui.theme.VaultWarning
 import com.componentvault.android.ui.theme.VaultWarningContainer
 import kotlinx.coroutines.launch
@@ -201,6 +202,7 @@ internal fun InventoryContent(
                 AnimatedPane {
                     InventoryDetailPane(
                         detail = uiState.detail,
+                        storageLocations = uiState.storageLocations,
                         modifier = Modifier.fillMaxSize(),
                         onEditComponent = onEditComponent,
                         onGenerateLabel = { component -> onGenerateLabel(component.id) },
@@ -242,6 +244,7 @@ internal fun InventoryDetailRoute(
     recentMovements: List<StockMovementRecord>,
     issuedQuantity: Long,
     allocations: List<com.componentvault.android.model.ComponentAllocationRecord> = emptyList(),
+    storageLocations: List<StorageLocationRecord> = emptyList(),
     onDismiss: () -> Unit,
     onEditComponent: (String) -> Unit,
     onGenerateLabel: (ComponentRecord) -> Unit,
@@ -285,6 +288,7 @@ internal fun InventoryDetailRoute(
                 issuedQuantity = issuedQuantity,
                 allocations = allocations,
             ),
+            storageLocations = storageLocations,
             modifier = Modifier
                 .fillMaxSize()
                 .consumeWindowInsets(padding),
@@ -405,6 +409,7 @@ private fun InventoryListPane(
                 items(uiState.list.items, key = { it.id }) { item ->
                     InventoryListRow(
                         item = item,
+                        storageLocations = uiState.storageLocations,
                         selected = if (selecting) item.id in selectedIds else item.id == uiState.list.selectedComponentId,
                         selectionMode = selecting,
                         onClick = {
@@ -516,7 +521,9 @@ private fun InventoryFilterHeader(
             }
             FilterMenuButton(
                 label = strings.inventory.filterLocationLabel,
-                value = uiState.filters.location ?: strings.inventory.filterLocationAll,
+                value = uiState.filters.location?.let {
+                    displayLocationName(it, uiState.storageLocations, strings.common.labelNotConfigured)
+                } ?: strings.inventory.filterLocationAll,
                 expanded = locationMenuExpanded,
                 onExpandedChange = { locationMenuExpanded = it },
             ) {
@@ -529,7 +536,7 @@ private fun InventoryFilterHeader(
                 )
                 uiState.availableLocations.forEach { location ->
                     DropdownMenuItem(
-                        text = { FilterMenuItemText(location) },
+                        text = { FilterMenuItemText(displayLocationName(location, uiState.storageLocations, strings.common.labelNotConfigured)) },
                         onClick = {
                             onLocationChange(location)
                             locationMenuExpanded = false
@@ -617,6 +624,7 @@ internal fun InventoryDetailPane(
     detail: InventoryDetailUiState,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(bottom = 12.dp),
+    storageLocations: List<StorageLocationRecord> = emptyList(),
     onEditComponent: (String) -> Unit,
     onGenerateLabel: (ComponentRecord) -> Unit,
     onRequestDeleteComponent: (String) -> Unit,
@@ -780,11 +788,14 @@ internal fun InventoryDetailPane(
         item {
             SectionPane(title = strings.inventory.detailLocationTitle) {
                 if (detail.allocations.isEmpty()) {
-                    ValueBlock(label = strings.common.fieldLocation, value = component.location)
+                    ValueBlock(
+                        label = strings.common.fieldLocation,
+                        value = displayLocationName(component.location, storageLocations, strings.common.labelNotConfigured),
+                    )
                 } else {
                     detail.allocations.forEach { allocation ->
                         ValueBlock(
-                            label = "${allocation.locationName} (${allocation.locationId})",
+                            label = allocation.locationName.ifBlank { allocation.locationId },
                             value = allocation.quantity.toString(),
                         )
                     }

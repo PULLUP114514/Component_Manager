@@ -17,7 +17,7 @@ public static class InventorySearch
         {
             component.Sku, component.Name, component.Category,
             CategoryDisplay.Localize(component.Category), component.PackageName,
-            component.Location, component.Description,
+            component.Location, component.DisplayLocation, component.Description,
             OfficialSpecifications.SearchText(component.Description, component.Category),
         }.Select(Normalize).ToArray();
 

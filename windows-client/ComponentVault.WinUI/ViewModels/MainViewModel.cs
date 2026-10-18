@@ -299,7 +299,7 @@ public sealed class MainViewModel : ObservableObject
             : (SelectedComponent.Quantity - SelectedComponent.MinStock).ToString("+#,0;-#,0;0");
 
     public string SelectedComponentLocation =>
-        SelectedComponent?.Location ?? "尚未选择仓位。";
+        SelectedComponent?.DisplayLocation ?? "尚未选择仓位。";
 
     public string SelectedComponentUpdatedAt =>
         SelectedComponent?.DisplayUpdatedAt ?? "尚未选择";
@@ -451,7 +451,8 @@ public sealed class MainViewModel : ObservableObject
         Dashboard = _store.GetDashboardSnapshot();
         Inventory.Refresh();
         ReplaceCollection(StorageLocations, _store.GetStorageLocations());
-        ReplaceCollection(LowStockComponents, _store.GetLowStockComponents());
+        var locationDisplay = new StorageLocationDisplay(_store.GetStorageLocations(includeDeleted: true));
+        ReplaceCollection(LowStockComponents, _store.GetLowStockComponents().Select(locationDisplay.Decorate));
         ReplaceCollection(Movements, _store.GetMovements());
         SyncConfiguration = _store.GetSyncConfiguration();
         StatusMessage = string.IsNullOrWhiteSpace(SyncConfiguration.LastSyncMessage)

@@ -191,7 +191,7 @@
                                                 Text="{Binding Quantity}" />
                                             <TextBlock
                                                 Style="{StaticResource CaptionTextStyle}"
-                                                Text="{Binding Location}" />
+                                                Text="{Binding DisplayLocation}" />
                                         </StackPanel>
                                     </Grid>
                                 </DataTemplate>

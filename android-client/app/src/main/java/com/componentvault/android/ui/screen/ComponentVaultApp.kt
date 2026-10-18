@@ -451,6 +451,7 @@ fun ComponentVaultApp(
                     recentMovements = compactDetailMovements,
                     issuedQuantity = uiState.inventory.detail.issuedQuantity,
                     allocations = uiState.inventory.detail.allocations,
+                    storageLocations = uiState.inventory.storageLocations,
                     onDismiss = { compactDetailComponentId = null },
                     onEditComponent = { componentId -> openComponentEditor(componentId) },
                     onGenerateLabel = { component ->
@@ -584,6 +585,7 @@ fun ComponentVaultApp(
                             contentPadding = padding,
                             syncConfiguration = uiState.syncConfiguration,
                             appPreferences = uiState.appPreferences,
+                            storageLocations = uiState.inventory.storageLocations,
                             importLearningSummary = uiState.importLearningSummary,
                             isBusy = uiState.isBusy,
                             statusMessage = "",
@@ -717,7 +719,17 @@ fun ComponentVaultApp(
                 onDismissRequest = { if (!singleAppendBusy) pendingSingleAppend = null },
                 title = { Text(androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.single_append_title)) },
                 text = { Text(if (total == null) androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.single_append_overflow)
-                    else androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.single_append_detail, pending.target.quantity, pending.draft.quantity, total, pending.draft.location)) },
+                    else androidx.compose.ui.res.stringResource(
+                        com.componentvault.android.R.string.single_append_detail,
+                        pending.target.quantity,
+                        pending.draft.quantity,
+                        total,
+                        displayLocationName(
+                            pending.draft.location,
+                            uiState.inventory.storageLocations,
+                            vaultStrings().common.labelNotConfigured,
+                        ),
+                    )) },
                 confirmButton = { Button(onClick = {
                     if (singleAppendBusy || total == null || pending.draft.quantity <= 0) return@Button
                     singleAppendBusy = true

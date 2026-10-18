@@ -76,6 +76,27 @@ class InventoryInteractionUiTest {
     )
 
     @Test
+    fun locationDisplayUsesNameAndKeepsLegacyFallback() {
+        val locations = listOf(StorageLocationRecord("LOC-ABC", "电阻抽屉", item.updatedAt))
+        assertEquals("电阻抽屉", displayLocationName("LOC-ABC", locations, "未配置"))
+        assertEquals("LOC-MISSING", displayLocationName("LOC-MISSING", locations, "未配置"))
+        assertEquals("未配置", displayLocationName("", locations, "未配置"))
+    }
+
+    @Test
+    fun inventoryCardShowsLocationNameInsteadOfInternalId() {
+        val locations = listOf(StorageLocationRecord("LOC-ABC", "电阻抽屉", item.updatedAt))
+        setInventoryContent {
+            MaterialTheme {
+                InventoryListRow(item.copy(location = "LOC-ABC"), selected = false,
+                    onClick = {}, storageLocations = locations)
+            }
+        }
+        compose.onNodeWithText("电阻抽屉").assertIsDisplayed()
+        compose.onNodeWithText("LOC-ABC").assertDoesNotExist()
+    }
+
+    @Test
     fun detailShowsStoredCapacitanceAndVoltageInBasicInformation() {
         val component = ComponentRecord(id = item.id, sku = item.sku, name = "Maker C0603",
             category = "电容", packageName = "0603", location = "A",

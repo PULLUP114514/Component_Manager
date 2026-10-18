@@ -20,6 +20,7 @@
   <ItemGroup>
     <Compile Include="..\ComponentVault.WinUI\Localization\CategoryDisplay.cs" Link="Localization\CategoryDisplay.cs" />
     <Compile Include="..\ComponentVault.WinUI\Localization\CategoryFilterSemantics.cs" Link="Localization\CategoryFilterSemantics.cs" />
+    <Compile Include="..\ComponentVault.WinUI\Services\InventoryWrites\*.cs" Link="Services\InventoryWrites\%(Filename)%(Extension)" />
     <Compile Include="..\ComponentVault.WinUI\Services\InventoryDatabase.cs" Link="Services\InventoryDatabase.cs" />
     <Compile Include="..\ComponentVault.WinUI\Services\InventoryQueries.cs" Link="Services\InventoryQueries.cs" />
     <Compile Include="..\ComponentVault.WinUI\ViewModels\InventoryViewModel.cs" Link="ViewModels\InventoryViewModel.cs" />

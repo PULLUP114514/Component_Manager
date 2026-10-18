@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.componentvault.android.model.OverviewUiState
 import com.componentvault.android.model.SyncConfiguration
+import com.componentvault.android.model.StorageLocationRecord
 
 @Composable
 internal fun OverviewScreen(
@@ -28,6 +29,7 @@ internal fun OverviewScreen(
     onSelectMovement: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSyncSettings: () -> Unit,
+    storageLocations: List<StorageLocationRecord> = emptyList(),
 ) {
     OverviewContent(
         contentPadding = contentPadding,
@@ -40,6 +42,7 @@ internal fun OverviewScreen(
         onSelectMovement = onSelectMovement,
         onOpenSettings = onOpenSettings,
         onOpenSyncSettings = onOpenSyncSettings,
+        storageLocations = storageLocations,
     )
 }
 
@@ -55,6 +58,7 @@ internal fun OverviewContent(
     onSelectMovement: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSyncSettings: () -> Unit,
+    storageLocations: List<StorageLocationRecord> = emptyList(),
 ) {
     val strings = vaultStrings()
 
@@ -110,6 +114,7 @@ internal fun OverviewContent(
                     uiState.lowStockItems.take(3).forEach { item ->
                         InventoryListRow(
                             item = item,
+                            storageLocations = storageLocations,
                             selected = false,
                             onClick = { onSelectLowStockComponent(item.id) },
                         )

@@ -18,6 +18,7 @@ public sealed class InventoryViewModel : ObservableObject
     private readonly InventoryStore _store;
     private bool _updatingOptions;
     private IReadOnlyList<ComponentRecord> _allComponents = [];
+    private Dictionary<string, string> _locationIdsByLabel = new(StringComparer.Ordinal);
     private string _componentSearchText = string.Empty;
     private bool _showLowStockOnly;
     private string _selectedComponentCategoryFilter = AllCategoriesOption;
@@ -81,7 +82,8 @@ public sealed class InventoryViewModel : ObservableObject
     {
         var components = _store.GetComponents();
         var outboundTotals = _store.GetCumulativeOutboundQuantities();
-        _allComponents = components.Select(component => new ComponentRecord
+        var display = new StorageLocationDisplay(_store.GetStorageLocations(includeDeleted: true));
+        _allComponents = components.Select(component => display.Decorate(new ComponentRecord
         {
             Id = component.Id,
             Sku = component.Sku,
@@ -97,7 +99,7 @@ public sealed class InventoryViewModel : ObservableObject
             CumulativeOutboundQuantity = outboundTotals.GetValueOrDefault(component.Id),
             Allocations = component.Allocations,
             BaseUpdatedAt = component.BaseUpdatedAt,
-        }).ToArray();
+        })).ToArray();
         UpdateFilterOptions();
         ApplyFilter();
         OnPropertyChanged(nameof(AvailableComponents));
@@ -111,12 +113,18 @@ public sealed class InventoryViewModel : ObservableObject
         if (SelectedComponentCategoryFilter != AllCategoriesOption)
             filtered = filtered.Where(component => CategoryFilterSemantics.SameCategory(component.Category, SelectedComponentCategoryFilter));
         if (SelectedComponentLocationFilter != AllLocationsOption)
-            filtered = filtered.Where(component => component.Location == SelectedComponentLocationFilter);
+        {
+            var locationId = _locationIdsByLabel.GetValueOrDefault(SelectedComponentLocationFilter,
+                SelectedComponentLocationFilter);
+            filtered = filtered.Where(component => component.Location == locationId);
+        }
         if (!string.IsNullOrWhiteSpace(ComponentSearchText))
         {
             var query = ComponentSearchText.Trim();
             filtered = filtered.Where(component => InventorySearch.Matches(component, query)
-                || CategoryFilterSemantics.MatchesSearch(component.Category, query));
+                || CategoryFilterSemantics.MatchesSearch(component.Category, query)
+                || component.Allocations.Any(allocation => allocation.LocationName is not null
+                    && allocation.LocationName.Contains(query, StringComparison.OrdinalIgnoreCase)));
         }
         filtered = SelectedComponentSortOption switch
         {
@@ -158,11 +166,26 @@ public sealed class InventoryViewModel : ObservableObject
                 OnPropertyChanged(nameof(SelectedComponentCategoryFilter));
             }
 
+            var oldLocationId = _locationIdsByLabel.GetValueOrDefault(
+                _selectedComponentLocationFilter, _selectedComponentLocationFilter);
             var locations = _allComponents.Select(component => component.Location)
                 .Where(location => !string.IsNullOrWhiteSpace(location))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(location => location, StringComparer.OrdinalIgnoreCase);
-            ReplaceOptions(InventoryLocationOptions, new[] { AllLocationsOption }.Concat(locations));
+                .Distinct(StringComparer.Ordinal).ToArray();
+            var displayNames = _allComponents.GroupBy(component => component.Location,
+                StringComparer.Ordinal).ToDictionary(group => group.Key,
+                group => group.First().DisplayLocation, StringComparer.Ordinal);
+            var duplicateNames = displayNames.Values.GroupBy(name => name,
+                StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1)
+                .Select(group => group.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _locationIdsByLabel = locations.ToDictionary(id =>
+                duplicateNames.Contains(displayNames[id]) || displayNames[id] == AllLocationsOption
+                    ? $"{displayNames[id]} ({id})" : displayNames[id],
+                id => id, StringComparer.Ordinal);
+            ReplaceOptions(InventoryLocationOptions, new[] { AllLocationsOption }
+                .Concat(_locationIdsByLabel.Keys.OrderBy(label => label, StringComparer.OrdinalIgnoreCase)));
+            var matchingLabel = _locationIdsByLabel.FirstOrDefault(pair => pair.Value == oldLocationId).Key;
+            if (matchingLabel is not null && _selectedComponentLocationFilter != AllLocationsOption)
+                _selectedComponentLocationFilter = matchingLabel;
             if (!InventoryLocationOptions.Contains(_selectedComponentLocationFilter))
             {
                 _selectedComponentLocationFilter = AllLocationsOption;

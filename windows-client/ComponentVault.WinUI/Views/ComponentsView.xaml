@@ -364,7 +364,7 @@
                                     <TextBlock
                                         Grid.Column="2"
                                         VerticalAlignment="Center"
-                                        Text="{Binding Location}"
+                                        Text="{Binding DisplayLocation}"
                                         TextTrimming="CharacterEllipsis" />
                                     <TextBlock
                                         Grid.Column="3"

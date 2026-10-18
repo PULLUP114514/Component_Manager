@@ -19,6 +19,11 @@ namespace ComponentVault.WinUI.Views;
 
 public sealed partial class ComponentsView : Page
 {
+    private sealed record LocationOption(string Id, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
     private readonly LcscPublicLookup _catalogLookup = new();
     private readonly HashSet<string> _lazyLookupAttempted = new(StringComparer.OrdinalIgnoreCase);
     private bool _componentEditorBusy;
@@ -282,9 +287,19 @@ public sealed partial class ComponentsView : Page
 
         var targetIds = viewModel.StorageLocations.Where(location => !location.Deleted)
             .Select(location => location.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
-        var sourceBox = new ComboBox { Header = "来源库位", ItemsSource = sourceIds, SelectedIndex = 0,
+        var allNames = viewModel.GetAllStorageLocations().ToDictionary(location => location.Id,
+            location => location.Name, StringComparer.Ordinal);
+        var duplicateNames = allNames.Values.GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1).Select(group => group.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        LocationOption Option(string id)
+        {
+            var name = allNames.GetValueOrDefault(id, id);
+            return new(id, duplicateNames.Contains(name) ? $"{name} ({id})" : name);
+        }
+        var sourceBox = new ComboBox { Header = "来源库位", ItemsSource = sourceIds.Select(Option).ToArray(), SelectedIndex = 0,
             HorizontalAlignment = HorizontalAlignment.Stretch };
-        var targetBox = new ComboBox { Header = "目标库位", ItemsSource = targetIds, SelectedIndex = -1,
+        var targetBox = new ComboBox { Header = "目标库位", ItemsSource = targetIds.Select(Option).ToArray(), SelectedIndex = -1,
             HorizontalAlignment = HorizontalAlignment.Stretch };
         var route = new Grid { ColumnSpacing = 12 };
         route.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -299,7 +314,8 @@ public sealed partial class ComponentsView : Page
         {
             quantityRows.Children.Clear();
             inputs.Clear();
-            if (sourceBox.SelectedItem is not string sourceId) return;
+            if (sourceBox.SelectedItem is not LocationOption source) return;
+            var sourceId = source.Id;
             foreach (var component in selected)
             {
                 var available = component.Allocations.First(allocation => allocation.LocationId == sourceId).Quantity;
@@ -339,8 +355,8 @@ public sealed partial class ComponentsView : Page
         };
         formDialog.PrimaryButtonClick += (_, args) =>
         {
-            if (sourceBox.SelectedItem is not string sourceId || targetBox.SelectedItem is not string targetId
-                || sourceId == targetId)
+            if (sourceBox.SelectedItem is not LocationOption source || targetBox.SelectedItem is not LocationOption target
+                || source.Id == target.Id)
             {
                 formError.Text = "请选择不同的来源库位和目标库位。";
                 args.Cancel = true;
@@ -349,7 +365,7 @@ public sealed partial class ComponentsView : Page
             if (inputs.Any(item => !double.IsFinite(item.Input.Value)
                 || item.Input.Value != Math.Truncate(item.Input.Value)
                 || item.Input.Value < 1
-                || item.Input.Value > item.Component.Allocations.First(allocation => allocation.LocationId == sourceId).Quantity))
+                || item.Input.Value > item.Component.Allocations.First(allocation => allocation.LocationId == source.Id).Quantity))
             {
                 formError.Text = "每项数量必须是正整数，且不超过来源库位可用数量。";
                 args.Cancel = true;
@@ -357,8 +373,8 @@ public sealed partial class ComponentsView : Page
         };
         if (await formDialog.ShowAsync() != ContentDialogResult.Primary) return;
 
-        var source = (string)sourceBox.SelectedItem;
-        var target = (string)targetBox.SelectedItem;
+        var source = ((LocationOption)sourceBox.SelectedItem).Id;
+        var target = ((LocationOption)targetBox.SelectedItem).Id;
         var lines = inputs.Select(item => new InventoryStore.BatchTransferLine(
             item.Component.Id, (int)item.Input.Value, item.Component.UpdatedAt)).ToArray();
         var review = string.Join("\n", inputs.Select(item => $"{item.Component.Sku} · {item.Component.Name} · {item.Input.Value:0} 件"));
@@ -368,7 +384,7 @@ public sealed partial class ComponentsView : Page
             {
                 MaxHeight = 420, Content = new TextBlock
                 {
-                    Text = $"第 2 步：确认 {selected.Length} 项转移\n{source} → {target}\n\n{review}\n\n总库存保持不变。",
+                    Text = $"第 2 步：确认 {selected.Length} 项转移\n{Option(source)} → {Option(target)}\n\n{review}\n\n总库存保持不变。",
                     TextWrapping = TextWrapping.Wrap,
                 },
             },

@@ -64,12 +64,22 @@ import com.componentvault.android.data.InventoryImageStore
 import com.componentvault.android.model.InventoryListItemUiState
 import com.componentvault.android.model.InventorySortOption
 import com.componentvault.android.model.StockMovementRecord
+import com.componentvault.android.model.StorageLocationRecord
 import com.componentvault.android.ui.theme.VaultWarning
 import com.componentvault.android.ui.theme.VaultWarningContainer
 import androidx.compose.animation.core.animate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+internal fun displayLocationName(
+    locationId: String,
+    storageLocations: List<StorageLocationRecord>,
+    emptyLabel: String,
+): String = when {
+    locationId.isBlank() -> emptyLabel
+    else -> storageLocations.firstOrNull { it.id == locationId }?.name?.takeIf { it.isNotBlank() } ?: locationId
+}
 
 @Composable
 internal fun StatusBanner(
@@ -220,6 +230,7 @@ internal fun InventoryListRow(
     onOutbound: (() -> Unit)? = null,
     onTransfer: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
+    storageLocations: List<StorageLocationRecord> = emptyList(),
 ) {
     if (!selectionMode && listOf(onInbound, onOutbound, onTransfer, onDelete).any { it != null }) {
         BoxWithConstraints(modifier.fillMaxWidth()) {
@@ -293,11 +304,11 @@ internal fun InventoryListRow(
                             settleJob?.cancel()
                             settleJob = scope.launch { animate(offsetPx, 0f) { value, _ -> offsetPx = value } }
                         } else onClick()
-                    }, selectionMode)
+                    }, selectionMode, storageLocations)
             }
         }
     } else {
-        InventoryListRowContent(item, selected, modifier, onClick, selectionMode)
+        InventoryListRowContent(item, selected, modifier, onClick, selectionMode, storageLocations)
     }
 }
 @OptIn(ExperimentalLayoutApi::class)
@@ -308,6 +319,7 @@ private fun InventoryListRowContent(
     modifier: Modifier,
     onClick: () -> Unit,
     selectionMode: Boolean,
+    storageLocations: List<StorageLocationRecord>,
 ) {
     val strings = vaultStrings()
     val localizedCategory = localizedCategoryLabel(item.category)
@@ -365,7 +377,7 @@ private fun InventoryListRowContent(
                         overflow = TextOverflow.Ellipsis,
                     )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    InventoryTag(text = item.location)
+                    InventoryTag(text = displayLocationName(item.location, storageLocations, strings.common.labelNotConfigured))
                     InventoryTag(
                         text = if (item.isLowStock) {
                             strings.common.statusLowStock

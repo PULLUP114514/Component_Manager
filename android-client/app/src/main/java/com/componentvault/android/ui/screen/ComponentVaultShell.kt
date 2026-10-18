@@ -371,6 +371,7 @@ private fun ShellContent(
         InventoryDestination.Overview -> OverviewContent(
             contentPadding = contentPadding,
             uiState = uiState.overview,
+            storageLocations = uiState.inventory.storageLocations,
             syncConfiguration = uiState.syncConfiguration,
             statusMessage = uiState.statusMessage,
             onOpenLowStock = onOpenLowStockInventory,

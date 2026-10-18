@@ -57,6 +57,7 @@ import com.componentvault.android.model.AppPreferences
 import com.componentvault.android.model.ImportLearningSummary
 import com.componentvault.android.model.OcrEngineMode
 import com.componentvault.android.model.SyncConfiguration
+import com.componentvault.android.model.StorageLocationRecord
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -76,6 +77,7 @@ internal fun SettingsRouteScreen(
     onTestConnection: (String, String, String) -> Unit,
     onSyncNow: () -> Unit,
     onClearImportLearningMappings: () -> Unit,
+    storageLocations: List<StorageLocationRecord> = emptyList(),
 ) {
     val strings = vaultStrings()
     val canStepBackToSectionList = !layoutMode.showsListDetail && selectedSection != null
@@ -120,6 +122,7 @@ internal fun SettingsRouteScreen(
             onTestConnection = onTestConnection,
             onSyncNow = onSyncNow,
             onClearImportLearningMappings = onClearImportLearningMappings,
+            storageLocations = storageLocations,
         )
     }
 }
@@ -140,6 +143,7 @@ internal fun SettingsScreen(
     onTestConnection: (String, String, String) -> Unit,
     onSyncNow: () -> Unit,
     onClearImportLearningMappings: () -> Unit,
+    storageLocations: List<StorageLocationRecord> = emptyList(),
 ) {
     SettingsContent(
         contentPadding = contentPadding,
@@ -156,6 +160,7 @@ internal fun SettingsScreen(
         onTestConnection = onTestConnection,
         onSyncNow = onSyncNow,
         onClearImportLearningMappings = onClearImportLearningMappings,
+        storageLocations = storageLocations,
     )
 }
 
@@ -177,6 +182,7 @@ internal fun SettingsContent(
     onClearImportLearningMappings: () -> Unit,
     onManageLocations: (() -> Unit)? = null,
     onBackupRestore: (() -> Unit)? = null,
+    storageLocations: List<StorageLocationRecord> = emptyList(),
 ) {
     val strings = vaultStrings()
     var serverUrl by remember(syncConfiguration.serverBaseUrl) {
@@ -281,6 +287,7 @@ internal fun SettingsContent(
                     SettingsSummaryPane(
                         syncConfiguration = syncConfiguration,
                         appPreferences = appPreferences,
+                        storageLocations = storageLocations,
                         importLearningSummary = importLearningSummary,
                         statusMessage = statusMessage,
                     )
@@ -364,6 +371,7 @@ internal fun SettingsContent(
                 SettingsSummaryPane(
                     syncConfiguration = syncConfiguration,
                     appPreferences = appPreferences,
+                    storageLocations = storageLocations,
                     importLearningSummary = importLearningSummary,
                     statusMessage = statusMessage,
                 )
@@ -537,6 +545,7 @@ private fun SettingsSectionCard(
 private fun SettingsSummaryPane(
     syncConfiguration: SyncConfiguration,
     appPreferences: AppPreferences,
+    storageLocations: List<StorageLocationRecord>,
     importLearningSummary: ImportLearningSummary,
     statusMessage: String,
 ) {
@@ -564,7 +573,7 @@ private fun SettingsSummaryPane(
         )
         ValueBlock(
             label = strings.common.fieldLocation,
-            value = appPreferences.suggestedImportLocation.ifBlank { strings.common.labelNotConfigured },
+            value = displayLocationName(appPreferences.suggestedImportLocation, storageLocations, strings.common.labelNotConfigured),
         )
         ValueBlock(
             label = strings.settings.ocrEngineLabel,
