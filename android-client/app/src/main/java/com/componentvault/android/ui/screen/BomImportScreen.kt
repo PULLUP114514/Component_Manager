@@ -898,17 +898,18 @@ internal fun BomImportScreen(
         )
     }
     presetToSave?.let { current ->
-        val replacesExisting = presets.any { it.name.equals(current.parsed.projectName, ignoreCase = true) }
+        val presetName = activePreset?.name ?: current.parsed.projectName
+        val replacesExisting = presets.any { it.name.equals(presetName, ignoreCase = true) }
         AlertDialog(
             onDismissRequest = { presetToSave = null },
             title = { Text(stringResource(R.string.bom_save_preset)) },
-            text = { Text(stringResource(if (replacesExisting) R.string.bom_preset_overwrite_notice else R.string.bom_preset_save_notice, current.parsed.projectName)) },
+            text = { Text(stringResource(if (replacesExisting) R.string.bom_preset_overwrite_notice else R.string.bom_preset_save_notice, presetName)) },
             confirmButton = {
                 TextButton(onClick = {
                     runCatching {
                         val saved = presetStore.save(BomPreset(
                             id = activePreset?.id ?: UUID.randomUUID().toString(),
-                            name = current.parsed.projectName,
+                            name = presetName,
                             parsed = current.parsed.copy(sourceName = current.parsed.sourceName.ifBlank { fileName }),
                             selections = selections,
                             excludedKeys = excludedKeys,

@@ -148,6 +148,22 @@ class BomPresetStoreTest {
         store.delete(original.id)
         assertTrue(serverTime(store.syncSnapshot().toString()) >= second.plusMillis(1))
     }
+    @Test
+    fun newPresetCannotOverwriteAmbiguousNameButExistingIdRemainsEditable() = withStore { store, file ->
+        val first = samplePreset().copy(excludedKeys = emptySet())
+        val second = first.copy(id = "second-id")
+        store.mergeRemote(org.json.JSONArray()
+            .put(BomPresetCodec.encodeRecord(first, "2099-01-01T00:00:00Z"))
+            .put(BomPresetCodec.encodeRecord(second, "2099-01-01T00:00:00Z")), org.json.JSONArray())
+        val before = file.readText()
+        val error = assertFailsWith<IllegalArgumentException> { store.save(first.copy(id = "new-id")) }
+        assertTrue(error.message.orEmpty().contains("存在多个同名预设"))
+        assertEquals(before, file.readText())
+        store.save(second.copy(selections = emptyMap()))
+        assertEquals(first, store.list().first { it.id == first.id })
+        assertTrue(store.list().first { it.id == second.id }.selections.isEmpty())
+        assertEquals(2, store.list().size)
+    }
     private fun samplePreset(): BomPreset {
         val sheet = BomSheet("BOM", 0)
         val source = BomSourceRow("BOM", 2, 3, mapOf("Comment" to "Test-Point", "Designator" to "TP1"))

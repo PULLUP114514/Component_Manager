@@ -38,8 +38,14 @@ class BomPresetStore(private val file: File) {
         require(preset.id.isNotBlank() && preset.name.isNotBlank()) { "预设 ID 和名称不能为空。" }
         require(preset.parsed.requirements.size <= LocalImportLimits.MAX_DATA_ROWS) { "预设 BOM 数据行超过 5000 行限制。" }
         val existing = records()
-        val prior = existing.firstOrNull { it.getString("id") == preset.id }?.let { if (it.optBoolean("deleted")) preset else activePreset(it) }
-            ?: existing.mapNotNull(::activePreset).firstOrNull { it.name.equals(preset.name, true) }
+        val priorById = existing.firstOrNull { it.getString("id") == preset.id }
+        val prior = if (priorById != null) {
+            if (priorById.optBoolean("deleted")) preset else activePreset(priorById)
+        } else {
+            val sameName = existing.mapNotNull(::activePreset).filter { it.name.equals(preset.name.trim(), true) }
+            require(sameName.size <= 1) { "存在多个同名预设，请先打开要修改的预设，或换一个项目名称。" }
+            sameName.singleOrNull()
+        }
         val saved = preset.copy(id = prior?.id ?: preset.id, name = preset.name.trim())
         val previous = existing.firstOrNull { it.getString("id") == saved.id }
         val record = BomPresetCodec.encodeRecord(saved, nextTimestamp(previous))

@@ -19,6 +19,7 @@ public sealed partial class BomView : Page
     private readonly Dictionary<int, string> _selections = [];
     private readonly HashSet<int> _skippedRows = [];
     private BomDocument? _document;
+    private BomPreset? _loadedPreset;
     private BomPreview? _preview;
     private BomTableInspection? _inspection;
     private BomColumnMapping? _mapping;
@@ -65,6 +66,7 @@ public sealed partial class BomView : Page
             ProjectNameBox.Text = preset.ProjectName;
             BatchQuantityBox.Value = preset.BatchQuantity;
             _document = preset.Document;
+            _loadedPreset = preset;
             _filePath = null;
             _inspection = null;
             _mapping = null;
@@ -85,7 +87,7 @@ public sealed partial class BomView : Page
         if (PresetBox.SelectedItem is not BomPreset selectedPreset) return;
         var confirm = new ContentDialog { Title = "删除 BOM 预设", Content = $"删除“{selectedPreset.Name}”？已加载的本次预览仍可继续使用。", PrimaryButtonText = "删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close, XamlRoot = XamlRoot };
         if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
-        try { _presetStore.DeleteById(selectedPreset.Id); RefreshPresets(); }
+        try { _presetStore.DeleteById(selectedPreset.Id); if (_loadedPreset?.Id == selectedPreset.Id) _loadedPreset = null; RefreshPresets(); }
         catch (Exception error) { await ShowMessageAsync("预设删除失败", error.Message); }
     }
 
@@ -98,22 +100,36 @@ public sealed partial class BomView : Page
             await ShowMessageAsync("无法保存预设", "请先填写项目名称和有效的生产批数。");
             return;
         }
-        var nameBox = new TextBox { Header = "预设名称", Text = ProjectNameBox.Text.Trim(), MinWidth = 360 };
+        var nameBox = new TextBox { Header = "预设名称", Text = _loadedPreset?.Name ?? ProjectNameBox.Text.Trim(), MinWidth = 360 };
         var dialog = new ContentDialog { Title = "保存 BOM 预设", Content = nameBox, PrimaryButtonText = "保存", CloseButtonText = "取消", XamlRoot = XamlRoot };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         var name = nameBox.Text.Trim();
         if (name.Length == 0) { await ShowMessageAsync("无法保存预设", "请输入预设名称。"); return; }
         try
         {
-            if (_presetStore.LoadAll().Any(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)))
+            var all = _presetStore.LoadAll();
+            var targetId = _loadedPreset?.Id;
+            if (targetId is null)
             {
-                var overwrite = new ContentDialog { Title = "覆盖已有预设", Content = $"“{name}”已存在。用当前 BOM 行、匹配与跳过状态覆盖吗？", PrimaryButtonText = "覆盖", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close, XamlRoot = XamlRoot };
+                var matches = all.Where(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (matches.Length > 1)
+                {
+                    await ShowMessageAsync("请选择保存目标", "存在多个同名预设，无法确定覆盖目标。请使用不同名称保存，或先加载需要更新的具体预设。");
+                    return;
+                }
+                targetId = matches.SingleOrDefault()?.Id;
+            }
+            if (targetId is not null)
+            {
+                var target = all.FirstOrDefault(item => item.Id == targetId);
+                var overwrite = new ContentDialog { Title = "更新已有预设", Content = $"将当前 BOM 行、匹配与跳过状态保存到“{target?.Name ?? _loadedPreset?.Name ?? name}”，名称设为“{name}”？", PrimaryButtonText = "保存更新", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close, XamlRoot = XamlRoot };
                 if (await overwrite.ShowAsync() != ContentDialogResult.Primary) return;
             }
+            targetId ??= Guid.NewGuid().ToString("N");
             _presetStore.Save(new(name, _document, ProjectNameBox.Text.Trim(), (int)quantity,
-                new Dictionary<int, string>(_selections), _skippedRows.Order().ToList(),
-                PresetBox.SelectedItem is BomPreset existing && existing.Name == name ? existing.Id : ""));
-            RefreshPresets(_presetStore.LoadAll().First(item => item.Name == name).Id);
+                new Dictionary<int, string>(_selections), _skippedRows.Order().ToList(), targetId));
+            _loadedPreset = _presetStore.LoadAll().Single(item => item.Id == targetId);
+            RefreshPresets(targetId);
             await ShowMessageAsync("预设已保存", $"“{name}”已保存。下次加载会重新核对当前库存。");
         }
         catch (Exception error) { await ShowMessageAsync("预设保存失败", error.Message); }
@@ -138,6 +154,7 @@ public sealed partial class BomView : Page
                 if (names.Count > 1 && sheet is null) return;
             }
             _inspection = _reader.Inspect(file.Path, sheet);
+            _loadedPreset = null;
             _mapping = _inspection.AutomaticMapping;
             MappingExpander.IsEnabled = true;
             UpdateMappingSummary();
