@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -15,6 +16,7 @@ import com.componentvault.android.data.bom.*
 import com.componentvault.android.model.ComponentRecord
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.launch
 
 internal data class KittingRow(val key: String, val label: String, val componentId: String?, val quantity: String)
 
@@ -53,13 +55,15 @@ internal fun KittingScreen(inventoryViewModel: InventoryViewModel, onDismiss: ()
     var confirm by remember { mutableStateOf(false) }
     var pendingPreset by remember { mutableStateOf<BomPreset?>(null) }
     var replacementKey by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     val components = inventoryViewModel.kittingComponents()
     LaunchedEffect(presetStore) {
         runCatching { presetStore.list() }.onSuccess { presets = it }.onFailure { session.message = it.message.orEmpty() }
     }
     fun locationName(id: String): String = inventoryViewModel.uiState.inventory.storageLocations.firstOrNull { it.id == id }?.name ?: id
     fun loadPreset(preset: BomPreset) {
-        showPresets = false; session.busy = true
+        showPresets = false; replacementKey = null; session.busy = true
         val token = ++session.generation
         inventoryViewModel.previewBomPreset(preset.parsed, preset.selections, emptyMap(), preset.excludedKeys) { result ->
             session.busy = false
@@ -96,15 +100,27 @@ internal fun KittingScreen(inventoryViewModel: InventoryViewModel, onDismiss: ()
         }
     }
     SecondaryPageScaffold(title = "配套件", onBack = onDismiss, navigationEnabled = !session.busy) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), state = listState, verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
             item { Text("从库存逐项选料，或从 BOM 预设带入。复核后确认一次扣减库存。", style = MaterialTheme.typography.bodyMedium) }
             item { OutlinedTextField(session.projectName, { session.projectName = it; session.invalidate() }, label = { Text("配套件名称") }, enabled = !session.busy && !session.applied, modifier = Modifier.fillMaxWidth()) }
             item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton({ showPresets = true }, enabled = !session.busy && !session.applied) { Text("从 BOM 预设带入") }
-                TextButton({ session.reset() }, enabled = !session.busy) { Text("新建 / 清空") }
+                TextButton({ replacementKey = null; session.reset() }, enabled = !session.busy) { Text("新建 / 清空") }
             } }
             if (!session.applied) {
-                item { OutlinedTextField(session.query, { session.query = it }, label = { Text(if (replacementKey == null) "搜索库存并添加" else "搜索库存以修复匹配") }, enabled = !session.busy, modifier = Modifier.fillMaxWidth()) }
+                item(key = "kitting-search") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val replacing = session.rows.firstOrNull { it.key == replacementKey }
+                        if (replacing != null) {
+                            Text("正在为 ${replacing.label} 重新选料。搜索并点选库存元件，即可替换此项。", style = MaterialTheme.typography.bodyMedium)
+                            TextButton({ replacementKey = null; session.query = "" }, enabled = !session.busy) { Text("取消重新选料") }
+                        }
+                        OutlinedTextField(session.query, { session.query = it },
+                            label = { Text(if (replacing == null) "搜索库存并添加" else "搜索库存以修复匹配") },
+                            placeholder = { Text("输入 SKU、名称或封装") },
+                            enabled = !session.busy, modifier = Modifier.fillMaxWidth())
+                    }
+                }
                 val matches = if (session.query.isBlank()) emptyList() else components.filter {
                     it.sku.contains(session.query, true) || it.name.contains(session.query, true) || it.packageName.contains(session.query, true)
                 }.take(30)
@@ -132,8 +148,12 @@ internal fun KittingScreen(inventoryViewModel: InventoryViewModel, onDismiss: ()
                     QuantityInputField(row.quantity, { value -> session.invalidate(); session.rows = session.rows.map { if (it.key == row.key) it.copy(quantity = value) else it } },
                         label = "扣减数量", enabled = !session.busy && !session.applied, modifier = Modifier.fillMaxWidth())
                     if (!session.applied) Row {
-                        TextButton({ replacementKey = row.key; session.query = component?.sku.orEmpty() }, enabled = !session.busy) { Text("重新选料") }
-                        TextButton({ session.invalidate(); session.rows = session.rows.filterNot { it.key == row.key } }, enabled = !session.busy) { Text("移除") }
+                        TextButton({
+                            replacementKey = row.key
+                            session.query = component?.sku.orEmpty()
+                            scope.launch { listState.animateScrollToItem(3) }
+                        }, enabled = !session.busy) { Text("重新选料") }
+                        TextButton({ session.invalidate(); session.rows = session.rows.filterNot { it.key == row.key }; if (replacementKey == row.key) replacementKey = null }, enabled = !session.busy) { Text("移除") }
                     }
                 } }
             }
