@@ -129,6 +129,25 @@ class BomPresetStoreTest {
         store.mergeRemote(outbound, outbound)
         assertEquals(preset, store.list().single())
     }
+    @Test
+    fun editsAndDeletionStayNewerAfterServerMicrosecondNormalization() = withStore { store, _ ->
+        val original = samplePreset().copy(excludedKeys = emptySet())
+        val prior = "2099-01-01T00:00:00.123456789Z"
+        store.mergeRemote(org.json.JSONArray().put(BomPresetCodec.encodeRecord(original, prior)), org.json.JSONArray())
+        fun serverTime(json: String): java.time.Instant = java.time.Instant.parse(
+            org.json.JSONArray(json).getJSONObject(0).getString("updated_at"),
+        ).truncatedTo(java.time.temporal.ChronoUnit.MICROS)
+        val remoteTime = java.time.Instant.parse(prior).truncatedTo(java.time.temporal.ChronoUnit.MICROS)
+        store.save(original.copy(name = "First edit"))
+        val first = serverTime(store.syncSnapshot().toString())
+        assertTrue(first > remoteTime)
+        assertTrue(first >= remoteTime.plusMillis(1))
+        store.save(original.copy(name = "Second edit"))
+        val second = serverTime(store.syncSnapshot().toString())
+        assertTrue(second >= first.plusMillis(1))
+        store.delete(original.id)
+        assertTrue(serverTime(store.syncSnapshot().toString()) >= second.plusMillis(1))
+    }
     private fun samplePreset(): BomPreset {
         val sheet = BomSheet("BOM", 0)
         val source = BomSourceRow("BOM", 2, 3, mapOf("Comment" to "Test-Point", "Designator" to "TP1"))

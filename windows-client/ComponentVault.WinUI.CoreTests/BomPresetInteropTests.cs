@@ -106,5 +106,21 @@ public sealed class BomPresetInteropTests : IDisposable
         Assert.Equal(2, preview.Lines.First(line => line.ComponentId == "a").RequiredQuantity);
         Assert.Equal(3, preview.Lines.First(line => line.ComponentId == "b").RequiredQuantity);
     }
+    [Fact]
+    public void FutureTimestampEditsAdvanceAtLeastOneMillisecondAcrossServerPrecision()
+    {
+        var store = new BomPresetStore(PathName);
+        var source = BomPresetCodec.Encode(Preset(), "future-id", "2099-01-01T00:00:00.123456Z");
+        store.Merge([source], []);
+        store.Save(Assert.Single(store.LoadAll()) with { BatchQuantity = 4 });
+        var edited = Assert.Single(store.Snapshot());
+        Assert.True(DateTimeOffset.Parse(edited.UpdatedAt) - DateTimeOffset.Parse(source.UpdatedAt) >= TimeSpan.FromMilliseconds(1));
+        long Microseconds(string value) => DateTimeOffset.Parse(value).UtcTicks / 10;
+        Assert.True(Microseconds(edited.UpdatedAt) > Microseconds(source.UpdatedAt));
+        store.DeleteById(source.Id);
+        var deleted = Assert.Single(store.Snapshot());
+        Assert.True(DateTimeOffset.Parse(deleted.UpdatedAt) - DateTimeOffset.Parse(edited.UpdatedAt) >= TimeSpan.FromMilliseconds(1));
+        Assert.True(Microseconds(deleted.UpdatedAt) > Microseconds(edited.UpdatedAt));
+    }
     public void Dispose() { if (Directory.Exists(_root)) Directory.Delete(_root, true); }
 }

@@ -60,7 +60,7 @@ public sealed class BomPresetStore
     private static string NextTimestamp(string? previous)
     {
         var now = DateTimeOffset.UtcNow;
-        if (DateTimeOffset.TryParse(previous, out var prior) && now <= prior) now = prior.AddTicks(1);
+        if (DateTimeOffset.TryParse(previous, out var prior) && now < prior.AddMilliseconds(1)) now = prior.AddMilliseconds(1);
         return now.ToString("O");
     }
     public bool Delete(string name) { lock (_gate) { var item = Read().FirstOrDefault(item => !item.Deleted && item.Name == name); return item is not null && DeleteById(item.Id); } }

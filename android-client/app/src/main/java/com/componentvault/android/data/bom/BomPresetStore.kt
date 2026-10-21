@@ -81,7 +81,9 @@ class BomPresetStore(private val file: File) {
     private fun nextTimestamp(previous: JSONObject?): String {
         val now = Instant.now()
         val prior = previous?.getString("updated_at")?.let(Instant::parse)
-        return (if (prior != null && prior >= now) prior.plusNanos(1) else now).toString()
+        // The server stores microseconds; advance by a millisecond so ordering survives wire normalization.
+        val minimum = prior?.plusMillis(1)
+        return (if (minimum != null && now < minimum) minimum else now).toString()
     }
 
     private fun portableRecord(record: JSONObject): JSONObject = JSONObject(record.toString()).apply { remove("_android_legacy_choices") }
