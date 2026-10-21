@@ -621,9 +621,9 @@ Android 与 Windows 的 BOM 入口采用文件识别、库存匹配、确认出�
 `Comment` 仅作为行说明，`Supplier Part` 与 `Manufacturer Part` 分别用于料号和型号。
 无料号、无型号的非空行保留独立源行身份，必须手选库存或显式跳过。
 跳过集合属于当前预览状态，原始解析数据保留以便恢复；跳过行不进入聚合扣料计划。
-最终出库继续使用原有事务与幂等标记，不新增数据库表或同步协议。
+最终出库继续使用原有库存事务与幂等标记；dev18 的预设交换另用独立账户表与接口，不改变库存协议。
 可选项目预设以客户端本地 JSON 保存解析后的单套清单和匹配/跳过选择，支持删除。
-重新使用时创建新批次并从当前数据库生成库存计划；预设不保存库存快照、不参与同步。
+重新使用时创建新批次并从当前数据库生成库存计划；预设不保存库存快照，dev18 起通过独立预设接口同步，详见下方“BOM 预设同步与配套件”。
 
 Both native clients provide bounded CSV/XLSX readers, exact-SKU and
 model/package matching, preview, explicit confirmation and transactional stock
@@ -635,9 +635,10 @@ commit together. Windows uses `bom_consumption_batches`; Android schema version
 idempotency. Android SQLiteOpenHelper upgrades these tables without replacing
 existing components or history.
 
-Release and migration markers are device-local. Only the existing component
-and movement entities synchronize; no project/BOM object was added to the wire
-protocol. Managed snapshots now reject conflicting concurrent writes rather than
+Release and migration markers remain device-local. Inventory sync retains the
+existing component and movement protocol; dev18 exchanges reusable BOM presets
+through a separate account-scoped endpoint, without synchronizing a production
+batch ledger. Managed snapshots reject conflicting concurrent writes rather than
 merging offline decrements. A production batch should be released
 on one device and synchronized before using another device for the same stock.
 
@@ -851,8 +852,11 @@ CI 在原有回归组前单独运行 `MovementLabelResolutionTest`、`QuantitySt
 
 原生客户端 `BomPresetStore` 使用 `{version:2,presets:[...]}` 原子文件，旧格式成功解码后先备份再迁移。公共 content `schema_version:1` 保留稳定预设/需求 ID、工作表与源行、每套用量、套数、人工选择和跳过项。`selection=null` 表示自动匹配，空字符串表示明确不匹配，非空字符串为库存 component ID。Android 合并源行与 Windows 独立源行转换时，按需求行用量计算一次，不能按 source_rows 再累加。
 
-服务端为每个已认证账户数据库增加 `bom_presets` 表。独立 `POST /sync/bom-presets` 在原库存同步及身份绑定验证后执行，短事务按 ID 与 UTC updated_at 合并，返回完整快照及墓碑；同时间服务器记录胜出。客户端保留请求发出后的本地编辑，等待下次同步。预设失败单独显示，不回滚已完成的库存交换；库存协议仍为 1。服务器健康和身份检查新增 `bom_preset_protocol:1` 能力字段。
+服务端为每个已认证账户数据库增加 `bom_presets` 表。独立 `POST /sync/bom-presets` 在原库存同步及身份绑定验证后执行，短事务按 ID 与 UTC updated_at 执行 last-write-wins（LWW），返回完整快照及墓碑；同时间服务器记录胜出。预设冲突不逐字段合并，也没有人工冲突合并界面。客户端保留请求发出后的本地编辑，等待下次同步。预设失败单独显示，不回滚已完成的库存交换；库存协议仍为 1。服务器健康和身份检查新增 `bom_preset_protocol:1` 能力字段。
 
 `GET /admin-api/bom-presets` 仅返回当前账户，管理台 `/bom-presets` 只读。预设交换不会写库存数量、流水或库存 revision。账户数据删除沿用既有独立数据库清理。
 
 Android `KittingScreen` / Windows `KittingView` 在本地保留当前会话草稿，复用已有 BOM planner/原子提交器和 releaseId 去重。未确认只做匹配与库位计划，不预占库存；确认时重新校验数量、版本和分配。应用结束后的草稿持久恢复未实现。预设不包含图片，不改变现有 Excel 库存备份范围。
+
+
+dev18 直接验收记录：真实 Windows 服务将共享预设发送到隔离 FastAPI，Android 手机同步并保留人工选择和跳过项，再由 Windows 拉取核对。手机明确确认一次仅扣减 6 和 2，重试没有额外扣减；Windows 删除预设后手机列表清空，库存仍为 14/18。Web 浏览器确认只读列表、详情、每套 3 × 2 = 6、明确未匹配、跳过及中英文切换。该记录覆盖本次路径，不代表全部设备或异常场景回归。
