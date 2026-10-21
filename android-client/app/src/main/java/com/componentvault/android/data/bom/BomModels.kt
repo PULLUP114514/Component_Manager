@@ -95,6 +95,8 @@ data class BomParseResult(
     val selectedSheet: BomSheet,
     val requirements: List<BomRequirement>,
     val fileSha256: String,
+    val sourceName: String = "",
+    val warnings: List<String> = emptyList(),
 )
 
 data class InventoryMatchCandidate(

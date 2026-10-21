@@ -846,3 +846,13 @@ CI 在原有回归组前单独运行 `MovementLabelResolutionTest`、`QuantitySt
 - `LocationQrCodec` 使用独立 `cvl-loc1|` 格式，只携带编码后的本地稳定库位 ID，不携带服务端路径、密钥或查询地址。扫描后验证当前有效库位并设置筛选，不改变库存。元件码仍交原有元件解析器处理。
 - 库位管理的打印操作直接打开原有自由二维码标签编辑器；元素选框只在编辑画布显示，不加到实际标签渲染。蓝牙传输和走纸协议保持不变。
 - 库位筛选考虑正库存分配；库存为零时保留主库位归属供补货查询。加载库位时清理已失效的“上次导入库位”引用，保留用户配置的默认仓位。
+
+## BOM 预设同步与配套件
+
+原生客户端 `BomPresetStore` 使用 `{version:2,presets:[...]}` 原子文件，旧格式成功解码后先备份再迁移。公共 content `schema_version:1` 保留稳定预设/需求 ID、工作表与源行、每套用量、套数、人工选择和跳过项。`selection=null` 表示自动匹配，空字符串表示明确不匹配，非空字符串为库存 component ID。Android 合并源行与 Windows 独立源行转换时，按需求行用量计算一次，不能按 source_rows 再累加。
+
+服务端为每个已认证账户数据库增加 `bom_presets` 表。独立 `POST /sync/bom-presets` 在原库存同步及身份绑定验证后执行，短事务按 ID 与 UTC updated_at 合并，返回完整快照及墓碑；同时间服务器记录胜出。客户端保留请求发出后的本地编辑，等待下次同步。预设失败单独显示，不回滚已完成的库存交换；库存协议仍为 1。服务器健康和身份检查新增 `bom_preset_protocol:1` 能力字段。
+
+`GET /admin-api/bom-presets` 仅返回当前账户，管理台 `/bom-presets` 只读。预设交换不会写库存数量、流水或库存 revision。账户数据删除沿用既有独立数据库清理。
+
+Android `KittingScreen` / Windows `KittingView` 在本地保留当前会话草稿，复用已有 BOM planner/原子提交器和 releaseId 去重。未确认只做匹配与库位计划，不预占库存；确认时重新校验数量、版本和分配。应用结束后的草稿持久恢复未实现。预设不包含图片，不改变现有 Excel 库存备份范围。

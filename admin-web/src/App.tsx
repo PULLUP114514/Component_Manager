@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { ProtectedRoute } from "@/components/routing/protected-route";
+import { BomPresetsPage } from "@/pages/bom-presets-page";
 import { DashboardPage } from "@/pages/dashboard-page";
 import { InventoryPage } from "@/pages/inventory-page";
 import { LoginPage } from "@/pages/login-page";
@@ -18,6 +19,7 @@ export default function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/inventory" element={<InventoryPage />} />
+            <Route path="/bom-presets" element={<BomPresetsPage />} />
             <Route path="/sync" element={<SyncPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

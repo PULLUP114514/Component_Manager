@@ -1,3 +1,4 @@
+using ComponentVault.WinUI.Services.Bom;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -74,7 +75,8 @@ public sealed class SyncApiClient
         SyncPushRequest pushRequest,
         long? cursor,
         CancellationToken cancellationToken = default,
-        Func<SyncAccountIdentity, string?>? validateAndBindIdentity = null
+        Func<SyncAccountIdentity, string?>? validateAndBindIdentity = null,
+        BomPresetSyncRequest? presetRequest = null
     )
     {
         if (string.IsNullOrWhiteSpace(settings.ServerBaseUrl))
@@ -109,6 +111,30 @@ public sealed class SyncApiClient
                 return pullResponse.Result;
             }
 
+            IReadOnlyList<BomPresetRecord>? remotePresets = null;
+            var presetMessage = "";
+            if (presetRequest is not null)
+            {
+                if (capability.BomPresetProtocol != 1) presetMessage = "库存同步完成；服务器暂不支持 BOM 预设同步，本地预设已保留。";
+                else
+                {
+                    try
+                    {
+                        using var request = new HttpRequestMessage(HttpMethod.Post, BuildUri(serverBaseUrl, "/sync/bom-presets"));
+                        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiToken);
+                        request.Headers.Add("X-Component-Vault-Account-Id", identity.AccountId);
+                        request.Content = new StringContent(JsonSerializer.Serialize(presetRequest, _jsonOptions), Encoding.UTF8, "application/json");
+                        using var response = await _httpClient.SendAsync(request, cancellationToken);
+                        if (!response.IsSuccessStatusCode) throw new InvalidOperationException(await BuildErrorMessageAsync(response, cancellationToken));
+                        var payload = await DeserializeAsync<BomPresetSyncResponse>(response, cancellationToken);
+                        if (payload.BomPresetProtocol != 1 || payload.Presets is null) throw new InvalidDataException("预设同步响应协议无效。");
+                        foreach (var record in payload.Presets) BomPresetCodec.Validate(record);
+                        remotePresets = payload.Presets;
+                        presetMessage = "BOM 预设同步完成。";
+                    }
+                    catch (Exception error) { presetMessage = $"库存同步完成；BOM 预设未同步：{error.Message} 本地预设已保留，可重试。"; }
+                }
+            }
             return new SyncRunResult
             {
                 IsSuccess = true,
@@ -117,6 +143,8 @@ public sealed class SyncApiClient
                 AcceptedComponents = pushResponse.Payload!.AcceptedComponents,
                 AcceptedStockMovements = pushResponse.Payload.AcceptedStockMovements,
                 PullResponse = pullResponse.Payload!,
+                BomPresets = remotePresets,
+                PresetSyncMessage = presetMessage,
             };
         }
         catch (Exception exception)

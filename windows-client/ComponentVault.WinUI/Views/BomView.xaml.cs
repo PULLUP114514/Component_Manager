@@ -40,9 +40,9 @@ public sealed partial class BomView : Page
 
     private void RefreshPresets(string? selected = null)
     {
-        var names = _presetStore.LoadAll().Select(item => item.Name).ToArray();
+        var names = _presetStore.LoadAll().ToArray();
         PresetBox.ItemsSource = names;
-        PresetBox.SelectedItem = names.FirstOrDefault(name => string.Equals(name, selected, StringComparison.OrdinalIgnoreCase));
+        PresetBox.SelectedItem = names.FirstOrDefault(name => string.Equals(name.Id, selected, StringComparison.Ordinal));
         UpdatePresetButtons();
     }
 
@@ -50,17 +50,17 @@ public sealed partial class BomView : Page
 
     private void UpdatePresetButtons()
     {
-        var selected = PresetBox.SelectedItem is string;
+        var selected = PresetBox.SelectedItem is BomPreset;
         LoadPresetButton.IsEnabled = selected;
         DeletePresetButton.IsEnabled = selected;
     }
 
     private async void OnLoadPresetClicked(object sender, RoutedEventArgs e)
     {
-        if (PresetBox.SelectedItem is not string name) return;
+        if (PresetBox.SelectedItem is not BomPreset selectedPreset) return;
         try
         {
-            var preset = _presetStore.LoadAll().First(item => item.Name == name);
+            var preset = _presetStore.LoadAll().First(item => item.Id == selectedPreset.Id);
             _document = null;
             ProjectNameBox.Text = preset.ProjectName;
             BatchQuantityBox.Value = preset.BatchQuantity;
@@ -82,10 +82,10 @@ public sealed partial class BomView : Page
 
     private async void OnDeletePresetClicked(object sender, RoutedEventArgs e)
     {
-        if (PresetBox.SelectedItem is not string name) return;
-        var confirm = new ContentDialog { Title = "删除 BOM 预设", Content = $"删除“{name}”？已加载的本次预览仍可继续使用。", PrimaryButtonText = "删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close, XamlRoot = XamlRoot };
+        if (PresetBox.SelectedItem is not BomPreset selectedPreset) return;
+        var confirm = new ContentDialog { Title = "删除 BOM 预设", Content = $"删除“{selectedPreset.Name}”？已加载的本次预览仍可继续使用。", PrimaryButtonText = "删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close, XamlRoot = XamlRoot };
         if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
-        try { _presetStore.Delete(name); RefreshPresets(); }
+        try { _presetStore.DeleteById(selectedPreset.Id); RefreshPresets(); }
         catch (Exception error) { await ShowMessageAsync("预设删除失败", error.Message); }
     }
 
@@ -111,8 +111,9 @@ public sealed partial class BomView : Page
                 if (await overwrite.ShowAsync() != ContentDialogResult.Primary) return;
             }
             _presetStore.Save(new(name, _document, ProjectNameBox.Text.Trim(), (int)quantity,
-                new Dictionary<int, string>(_selections), _skippedRows.Order().ToList()));
-            RefreshPresets(name);
+                new Dictionary<int, string>(_selections), _skippedRows.Order().ToList(),
+                PresetBox.SelectedItem is BomPreset existing && existing.Name == name ? existing.Id : ""));
+            RefreshPresets(_presetStore.LoadAll().First(item => item.Name == name).Id);
             await ShowMessageAsync("预设已保存", $"“{name}”已保存。下次加载会重新核对当前库存。");
         }
         catch (Exception error) { await ShowMessageAsync("预设保存失败", error.Message); }
@@ -237,7 +238,7 @@ public sealed partial class BomView : Page
 
     private string AllocationPlan(BomConsumptionLine line)
     {
-        var component = ViewModel.Components.FirstOrDefault(item => item.Id == line.ComponentId);
+        var component = ViewModel.AvailableComponents.FirstOrDefault(item => item.Id == line.ComponentId);
         if (component is null) return "不可用";
         var remaining = line.RequiredQuantity;
         var parts = new List<string>();
@@ -245,7 +246,7 @@ public sealed partial class BomView : Page
         {
             if (remaining == 0) break;
             var take = Math.Min(remaining, allocation.Quantity);
-            parts.Add($"{allocation.LocationId} × {take}");
+            parts.Add($"{allocation.LocationName ?? allocation.LocationId} × {take}");
             remaining -= take;
         }
         return remaining == 0 ? string.Join("，", parts) : "分配不足";
@@ -270,7 +271,7 @@ public sealed partial class BomView : Page
             if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
             {
                 choice = null;
-                box.ItemsSource = _planner.SearchInventory(ViewModel.Components, box.Text);
+                box.ItemsSource = _planner.SearchInventory(ViewModel.AvailableComponents, box.Text);
             }
         };
         box.SuggestionChosen += (_, args) => choice = args.SelectedItem as BomMatchCandidate;
@@ -278,7 +279,7 @@ public sealed partial class BomView : Page
         if (!string.IsNullOrWhiteSpace(initial))
         {
             box.Text = initial;
-            box.ItemsSource = _planner.SearchInventory(ViewModel.Components, initial);
+            box.ItemsSource = _planner.SearchInventory(ViewModel.AvailableComponents, initial);
         }
         panel.Children.Add(box);
         var dialog = new ContentDialog { Title = "选择库存匹配", Content = panel, PrimaryButtonText = "应用", CloseButtonText = "取消", XamlRoot = XamlRoot };

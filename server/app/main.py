@@ -14,6 +14,7 @@ from .admin.api import router as admin_router
 from .admin.about import router as about_router
 from .admin.spec_enrichment import EnrichmentJobs
 from .account_api import router as account_router
+from .bom_presets import router as bom_preset_router
 from .accounts import Account
 from .build_info import BUILD_REVISION, BUILD_VERSION
 from .auth import require_admin, require_sync_account, require_token
@@ -128,6 +129,7 @@ def create_app() -> FastAPI:
     app.add_middleware(DynamicCORSMiddleware)
     app.include_router(deployment_configuration_router)
     app.include_router(account_router)
+    app.include_router(bom_preset_router)
     app.include_router(admin_router)
     app.include_router(about_router)
 

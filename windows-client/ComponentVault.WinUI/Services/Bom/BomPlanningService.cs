@@ -46,6 +46,7 @@ public sealed class BomPlanningService
             }
 
             var key = sku.Length > 0 ? $"sku:{sku}" : part.Length > 0 ? $"part:{part}|package:{package}" : $"row:{row.RowNumber}";
+            key += selectedId is null ? "|automatic" : $"|selected:{selectedId}";
             if (!aggregates.TryGetValue(key, out var aggregate))
             {
                 aggregate = new Aggregate(row, 0, []);

@@ -52,6 +52,83 @@ class BomPresetStoreTest {
         assertEquals(original, file.readText())
     }
 
+    @Test
+    fun sharedWirePreservesEmptyChoiceMetadataAndImmutableLineIds() {
+        val preset = samplePreset().let { source -> source.copy(
+            parsed = source.parsed.copy(sourceName = "Windows.xlsx", warnings = listOf("人工检查")),
+            selections = mapOf(source.parsed.requirements.single().identity.canonicalKey to ""),
+            excludedKeys = setOf(source.parsed.requirements.single().identity.canonicalKey),
+        ) }
+        assertEquals(preset, BomPresetCodec.decode(BomPresetCodec.encode(listOf(preset))).single())
+    }
+
+    @Test
+    fun remoteMergeKeepsSameNamedIdsAndDeletionTombstones() = withStore { store, _ ->
+        val first = samplePreset().copy(excludedKeys = emptySet())
+        store.save(first)
+        val sent = store.syncSnapshot()
+        val second = BomPresetCodec.encodeRecord(first.copy(id = "remote-id"), "2099-01-01T00:00:00Z")
+        store.mergeRemote(org.json.JSONArray().put(second), sent)
+        assertEquals(setOf(first.id, "remote-id"), store.list().map { it.id }.toSet())
+        store.delete("remote-id")
+        assertEquals(listOf(first.id), store.list().map { it.id })
+        assertTrue((0 until store.syncSnapshot().length()).any {
+            val record = store.syncSnapshot().getJSONObject(it)
+            record.getString("id") == "remote-id" && record.getBoolean("deleted")
+        })
+    }
+
+    @Test
+    fun equalServerTimestampDoesNotOverwriteEditAfterSnapshot() = withStore { store, _ ->
+        val original = samplePreset().copy(excludedKeys = emptySet())
+        store.save(original)
+        val sent = store.syncSnapshot()
+        store.save(original.copy(name = "Edited"))
+        val current = store.syncSnapshot().getJSONObject(0)
+        val incoming = BomPresetCodec.encodeRecord(original, current.getString("updated_at"))
+        store.mergeRemote(org.json.JSONArray().put(incoming), sent)
+        assertEquals("Edited", store.list().single().name)
+    }
+    @Test
+    fun futureRemoteTimestampIsAdvancedByLocalEditAndNewerResponseCannotErasePendingEdit() = withStore { store, _ ->
+        val original = samplePreset().copy(excludedKeys = emptySet())
+        val remote = org.json.JSONArray().put(BomPresetCodec.encodeRecord(original, "2099-01-01T00:00:00Z"))
+        store.mergeRemote(remote, org.json.JSONArray())
+        val outbound = store.syncSnapshot()
+        store.save(original.copy(name = "Local edit"))
+        assertTrue(java.time.Instant.parse(store.syncSnapshot().getJSONObject(0).getString("updated_at")) > java.time.Instant.parse("2099-01-01T00:00:00Z"))
+        store.mergeRemote(org.json.JSONArray().put(BomPresetCodec.encodeRecord(original, "2100-01-01T00:00:00Z")), outbound)
+        assertEquals("Local edit", store.list().single().name)
+    }
+
+    @Test
+    fun readsSharedCrossPlatformFixtureWithoutMultiplyingSourceRows() {
+        val fixture = sequenceOf(File("../test-data/bom-preset-v1.json"), File("../../test-data/bom-preset-v1.json"), File("test-data/bom-preset-v1.json"))
+            .first { it.exists() }
+        val preset = BomPresetCodec.decode(fixture.readText(Charsets.UTF_8)).single()
+        assertEquals(3, preset.parsed.requirements.size)
+        assertEquals(3, preset.parsed.requirements.first().quantityPerSet)
+        assertEquals(6, preset.parsed.requirements.first().requiredQuantity)
+        assertEquals(2, preset.parsed.requirements.first().sourceRows.size)
+        assertEquals("", preset.selections["original:unmatched:2"])
+        assertTrue("original:excluded:3" in preset.excludedKeys)
+        assertEquals(preset, BomPresetCodec.decode(BomPresetCodec.encode(listOf(preset))).single())
+    }
+
+    @Test
+    fun migratesLegacyFileWithBackupAndKeepsOrphanChoicesLocally() = withStore { store, file ->
+        val legacy = """{"version":1,"presets":[{"id":"legacy","name":"Legacy","parsed":{"projectName":"Legacy","productionSets":1,"availableSheets":[{"name":"BOM","index":0,"hidden":false}],"selectedSheet":{"name":"BOM","index":0,"hidden":false},"fileSha256":"hash","requirements":[{"identity":"row:old","sku":"SKU","name":null,"model":null,"packageName":null,"quantityPerSet":2,"requiredQuantity":2,"sourceRows":[{"sheetName":"BOM","rowNumber":2,"quantityPerSet":2,"fields":{"Reference":"R1,R2"}}]}]},"selections":{"row:old":"","orphan":"old-id"},"excludedKeys":["orphan"]}]}"""
+        file.writeText(legacy)
+        val preset = store.list().single()
+        assertEquals(mapOf("row:old" to "", "orphan" to "old-id"), preset.selections)
+        assertEquals(setOf("orphan"), preset.excludedKeys)
+        assertEquals(legacy, File(file.parentFile, "${file.name}.v1.bak").readText())
+        assertEquals(2, org.json.JSONObject(file.readText()).getInt("version"))
+        val outbound = store.syncSnapshot()
+        assertFalse(outbound.getJSONObject(0).has("_android_legacy_choices"))
+        store.mergeRemote(outbound, outbound)
+        assertEquals(preset, store.list().single())
+    }
     private fun samplePreset(): BomPreset {
         val sheet = BomSheet("BOM", 0)
         val source = BomSourceRow("BOM", 2, 3, mapOf("Comment" to "Test-Point", "Designator" to "TP1"))

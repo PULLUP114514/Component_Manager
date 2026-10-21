@@ -13,6 +13,15 @@ from .accounts import Account
 
 SCHEMA_STATEMENTS = (
     """
+    CREATE TABLE IF NOT EXISTS bom_presets (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted INTEGER NOT NULL DEFAULT 0,
+        content_json TEXT
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS components (
         id TEXT PRIMARY KEY,
         sku TEXT NOT NULL,

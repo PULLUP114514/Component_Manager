@@ -1,4 +1,4 @@
-﻿<Page
+<Page
     x:Class="ComponentVault.WinUI.Views.ComponentsView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -97,6 +97,7 @@
                         <AppBarButton.Icon><FontIcon Glyph="&#xE8B7;" /></AppBarButton.Icon>
                     </AppBarButton>
                     <AppBarButton Click="OnImportComponentHubClicked" Icon="Upload" Label="导入元器件" />
+                    <AppBarButton Click="OnKittingClicked" Icon="AllApps" Label="配套件" />
                     <AppBarButton Click="OnManageLocationsClicked" Label="管理库位">
                         <AppBarButton.Icon><FontIcon Glyph="&#xE707;" /></AppBarButton.Icon>
                     </AppBarButton>

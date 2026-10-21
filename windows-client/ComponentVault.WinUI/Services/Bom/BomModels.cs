@@ -32,7 +32,7 @@ public sealed record BomDocument(
     string SourceName,
     string? WorksheetName,
     IReadOnlyList<BomSourceRow> Rows,
-    IReadOnlyList<string> Warnings
+    IReadOnlyList<string> Warnings, BomPresetContent? PresetContent = null
 );
 
 public sealed record BomImportOptions(string ProjectName, int BatchQuantity);

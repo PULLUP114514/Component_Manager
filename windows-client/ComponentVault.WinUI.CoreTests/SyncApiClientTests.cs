@@ -267,6 +267,33 @@ public sealed class SyncApiClientTests
         Assert.Equal(2, handler.Requests.Count);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task PresetExchange_UsesBoundAccountAndPreservesInventorySuccess(bool capability, bool endpoint)
+    {
+        var handler = new RecordingHandler(async (request, _) =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/auth/ping" && capability)
+                return Json(HttpStatusCode.OK, "{\"status\":\"ok\",\"server_time\":\"2026-10-22T00:00:00Z\",\"inventory_protocol\":1,\"bom_preset_protocol\":1}");
+            if (request.RequestUri.AbsolutePath == "/sync/bom-presets")
+            {
+                Assert.Equal("account-1", Assert.Single(request.Headers.GetValues("X-Component-Vault-Account-Id")));
+                Assert.Contains("\"device_id\":\"test-device\"", await request.Content!.ReadAsStringAsync());
+                return endpoint ? Json(HttpStatusCode.OK, "{\"server_time\":\"2026-10-22T00:00:00Z\",\"bom_preset_protocol\":1,\"presets\":[]}") : Json(HttpStatusCode.NotFound, "{\"detail\":\"not found\"}");
+            }
+            return SuccessFor(request);
+        });
+        var result = await CreateClient(handler).RunSyncAsync(Settings(), EmptyPush(), null,
+            validateAndBindIdentity: identity => identity.AccountId == "account-1" ? null : "identity mismatch",
+            presetRequest: new ComponentVault.WinUI.Services.Bom.BomPresetSyncRequest("test-device", []));
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.PullResponse);
+        if (capability && endpoint) Assert.NotNull(result.BomPresets);
+        else { Assert.Null(result.BomPresets); Assert.Contains("本地预设已保留", result.PresetSyncMessage); }
+        Assert.Equal(capability ? 5 : 4, handler.Requests.Count);
+    }
     private static SyncApiClient CreateClient(HttpMessageHandler handler) =>
         new(new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) });
 

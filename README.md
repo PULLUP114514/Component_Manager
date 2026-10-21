@@ -123,3 +123,9 @@ cd server
 作者：**Rafael-Ikaros**。源代码、问题反馈与发布文件位于 [Rafael-ban/Component_Manager](https://github.com/Rafael-ban/Component_Manager)。
 
 Android CI 的扫码匹配和数量边界检查独立报告，超时与回归日志的查看方法见[测试排查](docs/runbook.md#android-测试超时排查)。
+
+## BOM 预设互通与配套件（dev）
+
+Android 和 Windows 的项目 BOM 预设可通过同一账户的服务端同步，保留人工匹配、跳过项和来源信息。Web 管理台增加只读“BOM 预设”页。保存、打开与同步预设都不会扣库存；临时配套可逐项选料或带入预设，复核数量和库位后明确确认才一次出库。
+
+服务端需支持 `bom_preset_protocol: 1`；旧服务端仍可同步库存，客户端会说明预设未同步。旧预设自动备份迁移，已有库存数据与原库存协议保持不变。Excel 库存备份不包含预设，详情见 [项目 BOM 与配套件教程](docs/bom-and-migration.md#预设跨设备同步与配套件)。照片文件同步仍未实现。

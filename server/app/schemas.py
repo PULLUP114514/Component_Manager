@@ -19,6 +19,7 @@ class HealthResponse(BaseModel):
     status: str
     server_time: datetime
     inventory_protocol: int = 1
+    bom_preset_protocol: int = 1
     version: str = BUILD_VERSION
     revision: str = BUILD_REVISION
 
@@ -27,6 +28,7 @@ class SyncTokenStatus(BaseModel):
     status: str
     server_time: datetime
     inventory_protocol: int = 1
+    bom_preset_protocol: int = 1
 
 
 class StorageLocationPayload(BaseModel):

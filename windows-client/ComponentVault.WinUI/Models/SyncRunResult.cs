@@ -1,3 +1,4 @@
+using ComponentVault.WinUI.Services.Bom;
 using ComponentVault.WinUI.Services;
 
 namespace ComponentVault.WinUI.Models;
@@ -10,6 +11,8 @@ public sealed class SyncRunResult
     public int AcceptedStockMovements { get; init; }
     public string UsedServerBaseUrl { get; init; } = string.Empty;
     public SyncPullResponse? PullResponse { get; init; }
+    public IReadOnlyList<BomPresetRecord>? BomPresets { get; init; }
+    public string PresetSyncMessage { get; init; } = "";
 
     public static SyncRunResult Failure(string message) =>
         new()

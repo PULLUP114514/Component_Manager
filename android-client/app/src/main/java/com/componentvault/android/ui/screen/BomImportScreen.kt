@@ -909,7 +909,7 @@ internal fun BomImportScreen(
                         val saved = presetStore.save(BomPreset(
                             id = activePreset?.id ?: UUID.randomUUID().toString(),
                             name = current.parsed.projectName,
-                            parsed = current.parsed,
+                            parsed = current.parsed.copy(sourceName = current.parsed.sourceName.ifBlank { fileName }),
                             selections = selections,
                             excludedKeys = excludedKeys,
                         ))

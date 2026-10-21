@@ -454,6 +454,8 @@ public sealed partial class ComponentsView : Page
         }
     }
 
+    private void OnKittingClicked(object sender, RoutedEventArgs e)
+    { if (Application.Current is App { Window: MainWindow window }) window.NavigateTo("Kitting"); }
     private void OnBatchJlcInboundClicked(object sender,RoutedEventArgs e)
     {if(Application.Current is App { Window: MainWindow window })window.NavigateTo("BatchInbound");}
 

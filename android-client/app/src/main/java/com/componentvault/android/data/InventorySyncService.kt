@@ -24,6 +24,7 @@ internal class InventorySyncService(
     private val syncConfigurationLock: Any,
 ) {
     private val syncMutex = Mutex()
+    private val bomPresetStore = com.componentvault.android.data.bom.BomPresetStore(java.io.File(appContext.filesDir, "bom-presets.json"))
 
     internal suspend fun testConnection(settings: SyncConfiguration): OperationResult = withContext(Dispatchers.IO) {
         if (settings.serverBaseUrl.isBlank()) {
@@ -146,13 +147,14 @@ internal class InventorySyncService(
                 val pulledComponents = pullResponse.optJSONArray("components")?.length() ?: 0
                 val pulledMovements = pullResponse.optJSONArray("stock_movements")?.length() ?: 0
                 val serverTime = pullResponse.optString("server_time")
+                val presetMessage = syncBomPresets(endpoint, settings, accountId)
                 val successMessage = text(
                     R.string.sync_complete_summary,
                     acceptedComponents,
                     acceptedMovements,
                     pulledComponents,
                     pulledMovements,
-                ) + if (endpoint.usesExternalAddress) " " + text(R.string.sync_via_external) else ""
+                ) + (if (endpoint.usesExternalAddress) " " + text(R.string.sync_via_external) else "") + presetMessage
 
                 synchronized(syncConfigurationLock) {
                     checkSyncConfigurationUnchanged(settings)
@@ -181,6 +183,26 @@ internal class InventorySyncService(
         }
     }
 
+    /** Preset failures are partial failures: successful inventory sync remains committed. */
+    private fun syncBomPresets(endpoint: ResolvedSyncEndpoint<JSONObject>, settings: SyncConfiguration, accountId: String): String {
+        if (endpoint.probe.optInt("bom_preset_protocol") != 1) return " 库存同步完成；服务器暂不支持 BOM 预设同步。"
+        return try {
+            val outbound = synchronized(syncConfigurationLock) {
+                checkSyncConfigurationUnchanged(settings)
+                bomPresetStore.syncSnapshot()
+            }
+            val response = callJson(endpoint.configuration, "POST", "/sync/bom-presets",
+                JSONObject().put("device_id", settings.deviceId).put("presets", outbound), accountId = accountId)
+            check(response.optInt("bom_preset_protocol") == 1) { "BOM 预设同步响应版本不受支持。" }
+            synchronized(syncConfigurationLock) {
+                checkSyncConfigurationUnchanged(settings)
+                bomPresetStore.mergeRemote(response.getJSONArray("presets"), outbound)
+            }
+            " BOM 预设已同步。"
+        } catch (error: Exception) {
+            " 库存同步完成；BOM 预设未同步：${error.message ?: "请重试"}"
+        }
+    }
     private fun buildPushPayload(deviceId: String): SyncPayload {
         databaseHelper.readableDatabase.use { db ->
             val queuedEntities = mutableListOf<QueuedEntity>()

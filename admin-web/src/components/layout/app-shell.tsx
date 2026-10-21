@@ -1,5 +1,5 @@
 import { useI18n } from "@/lib/i18n";
-import { DatabaseZap, LayoutDashboard, LogOut, Settings, ShieldCheck } from "lucide-react";
+import { ClipboardList, DatabaseZap, LayoutDashboard, LogOut, Settings, ShieldCheck } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/use-auth";
 const navigationItems = [
   { to: "/dashboard", label: "概览", icon: LayoutDashboard },
   { to: "/inventory", label: "库存", icon: DatabaseZap },
+  { to: "/bom-presets", label: "BOM 预设", icon: ClipboardList },
   { to: "/sync", label: "同步", icon: ShieldCheck },
   { to: "/settings", label: "设置", icon: Settings },
 ] as const;

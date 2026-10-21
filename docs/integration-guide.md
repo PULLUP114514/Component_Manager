@@ -574,3 +574,17 @@ All device/audit/conflict APIs use the authenticated account inventory database.
 ## 删除 Web 库存元件（0.7.8-dev.7）
 
 `DELETE /admin-api/components/{component_id}`，请求 JSON：`{"request_id":"唯一操作ID","expected_updated_at":"详情返回的更新时间"}`。需要有效账户认证，并启用 Web 库存写入；Cookie 会话仍需 CSRF 头。返回 `{id, deleted, updated_at}`。相同请求 ID 与载荷可安全重试，版本过期返回冲突，重新读取后再确认。服务端保存删除墓碑并同步给客户端，保留流水；不会访问其他账户的库存。
+
+## BOM 预设协议 1
+
+`/health` 与 `/auth/ping` 返回 `bom_preset_protocol: 1` 表示支持；缺少能力的旧服务端只同步库存。客户端先完成原账户绑定与库存同步，再携带同一 Bearer Token 和 `X-Component-Vault-Account-Id` 调用 `POST /sync/bom-presets`：
+
+```json
+{"device_id":"my-device","presets":[{"id":"preset-id","name":"示例","updated_at":"2026-10-22T01:00:00Z","deleted":true,"content":null}]}
+```
+
+响应 `{server_time,bom_preset_protocol:1,presets:[...]}` 返回账户完整预设快照（含墓碑）。按 ID 合并，较新 UTC 时间覆盖；相同时间以服务器为准，客户端同步期间的新本地修改应保留待下次交换。活动预设必须提供 content，删除记录可以为 null。
+
+content 的字段为 `schema_version:1,project_name,production_sets,source_name,file_sha256,available_sheets,selected_sheet,warnings,lines`；每行 `id,sku,name,model,package_name,quantity_per_set,selection,excluded,source_rows`。source_rows 保留工作表、原始行号、单套数量和字段字典。每套数量/套数为正整数且乘积不超过 int32；最多 5000 行。selection 为 null/空字符串/元件 ID 时分别表示自动/明确未匹配/人工指定。不得丢失空字符串或重算收到的行 ID。完整三端样例见 `test-data/bom-preset-v1.json`。
+
+`GET /admin-api/bom-presets` 复用 Web 会话或账户 Token，返回同一结构，只能查看自己的账户。所有这些操作均不扣库存。预设失败应显示部分完成并保留本地文件，不重放已成功库存扣料。

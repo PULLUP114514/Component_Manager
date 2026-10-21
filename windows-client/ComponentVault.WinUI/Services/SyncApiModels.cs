@@ -74,6 +74,7 @@ public sealed class SyncPullResponse
 
 public sealed class SyncTokenStatusResponse
 {
+    public int BomPresetProtocol { get; init; }
     public required string Status { get; init; }
     public required string ServerTime { get; init; }
     public int InventoryProtocol { get; init; }
