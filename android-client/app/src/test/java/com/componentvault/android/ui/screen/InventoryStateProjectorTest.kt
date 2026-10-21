@@ -94,4 +94,25 @@ class InventoryStateProjectorTest {
             InventoryFiltersUiState(), null,
         ).availableLocations)
     }
+
+    @Test
+    fun detailShowsOnlyStockedLocationsAndFallsBackToHomeWhenDepleted() {
+        val moved = stocked.copy(location = "C", quantity = 10)
+        val depleted = low.copy(location = "D", quantity = 0)
+        val projector = InventoryStateProjector(
+            components = listOf(moved, depleted), movements = emptyList(),
+            issuedQuantities = emptyMap(), locations = emptyList(),
+            allocations = listOf(
+                ComponentAllocationRecord(moved.id, "A", "Drawer A", 0),
+                ComponentAllocationRecord(moved.id, "B", "Drawer B", 0),
+                ComponentAllocationRecord(moved.id, "C", "Drawer C", 10),
+                ComponentAllocationRecord(depleted.id, "A", "Drawer A", 0),
+                ComponentAllocationRecord(depleted.id, "D", "Drawer D", 0),
+            ),
+        )
+
+        assertEquals(listOf("C"), projector.detail(moved).allocations.map { it.locationId })
+        assertEquals(emptyList(), projector.detail(depleted).allocations)
+        assertEquals("D", projector.detail(depleted).component?.location)
+    }
 }

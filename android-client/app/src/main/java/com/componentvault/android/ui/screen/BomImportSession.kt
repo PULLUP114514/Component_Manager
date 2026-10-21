@@ -57,6 +57,14 @@ internal class BomImportSession : ViewModel() {
 
     fun isCurrent(token: Long): Boolean = initialized && generation == token
 
+    /** Rebuild a kept BOM preview from current inventory when its screen is reopened. */
+    fun consumeRetainedPreviewRefresh(mode: BomImportMode?): Boolean {
+        val refresh = retainOnExit && entryMode == mode && selectedMode.value == BomImportMode.Bom &&
+            preview.value != null && !releaseApplied.value
+        retainOnExit = false
+        return refresh
+    }
+
     fun launchTask(block: suspend (Long) -> Unit) {
         task?.cancel()
         val token = generation

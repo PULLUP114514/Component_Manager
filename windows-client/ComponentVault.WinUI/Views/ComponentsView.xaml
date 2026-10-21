@@ -551,7 +551,7 @@
                         </StackPanel>
                         <StackPanel Spacing="4">
                             <TextBlock FontWeight="SemiBold" Text="库位分配" />
-                            <ItemsControl ItemsSource="{Binding SelectedComponent.Allocations}" />
+                            <ItemsControl ItemsSource="{Binding SelectedComponent.DisplayAllocations}" />
                         </StackPanel>
                         <StackPanel
                             Spacing="6">

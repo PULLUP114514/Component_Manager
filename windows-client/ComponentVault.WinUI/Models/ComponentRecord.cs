@@ -23,6 +23,16 @@ public sealed class ComponentRecord
     public required bool Deleted { get; init; }
     public long CumulativeOutboundQuantity { get; init; }
     public IReadOnlyList<ComponentAllocationRecord> Allocations { get; init; } = [];
+    public IReadOnlyList<ComponentAllocationRecord> DisplayAllocations
+    {
+        get
+        {
+            var stocked = Allocations.Where(allocation => allocation.Quantity > 0).ToArray();
+            return stocked.Length > 0
+                ? stocked
+                : [new ComponentAllocationRecord(Id, Location, 0) { LocationName = DisplayLocation }];
+        }
+    }
     public string? BaseUpdatedAt { get; init; }
     public bool IsBatchSelected { get; set; }
 

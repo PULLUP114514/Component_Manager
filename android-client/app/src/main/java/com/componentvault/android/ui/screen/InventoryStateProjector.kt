@@ -69,7 +69,7 @@ internal class InventoryStateProjector(
         }.orEmpty(),
         issuedQuantity = component?.let { issuedQuantities[it.id] } ?: 0,
         allocations = component?.let { selected ->
-            allocations.filter { it.componentId == selected.id }
+            allocations.filter { it.componentId == selected.id && it.quantity > 0 }
         }.orEmpty(),
     )
 

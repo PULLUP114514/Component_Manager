@@ -6,6 +6,7 @@ import com.componentvault.android.data.InventoryRepository
 import com.componentvault.android.data.bom.BomParseResult
 import com.componentvault.android.data.bom.BomRequirement
 import com.componentvault.android.data.bom.BomRequirementIdentity
+import com.componentvault.android.data.bom.BomReleasePreview
 import com.componentvault.android.data.bom.BomSheet
 import com.componentvault.android.model.ComponentDraft
 import kotlinx.coroutines.runBlocking
@@ -16,6 +17,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -30,6 +32,28 @@ class BomImportSessionTest {
         val helper = InventoryDatabaseHelper(context)
         try { context.deleteDatabase(helper.databaseName) } finally { helper.close() }
         repository = InventoryRepository(context)
+    }
+
+    @Test fun keptBomPreviewRefreshesOnceWithoutDroppingUserChoices() {
+        val session = BomImportSession()
+        val parsed = BomParseResult(
+            projectName = "Board", productionSets = 5,
+            availableSheets = listOf(BomSheet("BOM", 0)), selectedSheet = BomSheet("BOM", 0),
+            requirements = emptyList(), fileSha256 = "test-file",
+        )
+        session.entryMode = BomImportMode.Bom
+        session.selectedMode.value = BomImportMode.Bom
+        session.preview.value = BomReleasePreview(parsed, emptyList())
+        session.productionSets.value = "5"
+        session.selections.value = mapOf("sku:R-1" to "component-1")
+        session.excludedKeys.value = setOf("sku:C-1")
+        session.retainOnExit = true
+
+        assertTrue(session.consumeRetainedPreviewRefresh(BomImportMode.Bom))
+        assertFalse(session.consumeRetainedPreviewRefresh(BomImportMode.Bom))
+        assertEquals("5", session.productionSets.value)
+        assertEquals(mapOf("sku:R-1" to "component-1"), session.selections.value)
+        assertEquals(setOf("sku:C-1"), session.excludedKeys.value)
     }
 
     @Test fun clearedMatchStaysUnmatchedWhileAnotherAutomaticMatchRemains() = runBlocking {

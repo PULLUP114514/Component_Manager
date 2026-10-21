@@ -80,6 +80,7 @@ internal fun BomImportScreen(
     val session: BomImportSession = composeViewModel()
     val procurement: BomProcurementViewModel = composeViewModel()
     LaunchedEffect(procurement) { procurement.refresh() }
+    val refreshRetainedPreview = remember(session) { session.consumeRetainedPreviewRefresh(initialMode) }
     val activity = remember(currentContext) {
         generateSequence(currentContext as Context?) { (it as? ContextWrapper)?.baseContext }
             .filterIsInstance<Activity>().firstOrNull()
@@ -210,6 +211,10 @@ internal fun BomImportScreen(
                 onComplete = onResult,
             )
         }
+    }
+
+    LaunchedEffect(refreshRetainedPreview) {
+        if (refreshRetainedPreview) requestPreview()
     }
 
     fun openPreset(preset: BomPreset) {

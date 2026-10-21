@@ -65,6 +65,36 @@ public sealed class InventoryViewModelTests : IDisposable
         Assert.Equal("A-1", vm.SelectedComponent?.Sku);
     }
 
+    [Fact]
+    public void DetailShowsStockedLocationAfterEditAndHomeLocationWhenDepleted()
+    {
+        var store = CreateStore();
+        var original = Save(store, "LOCATION-EDIT", "Part", "IC", "A", 10, 0);
+        store.SaveComponent(new ComponentDraft
+        {
+            Id = original.Id, Sku = original.Sku, Name = original.Name,
+            Category = original.Category, PackageName = original.PackageName,
+            Location = "C", Description = original.Description, Quantity = 10, MinStock = 0,
+        });
+        var vm = new InventoryViewModel(store);
+        vm.Refresh();
+
+        Assert.Equal("C", Assert.Single(vm.SelectedComponent!.DisplayAllocations).LocationId);
+        Assert.Contains(vm.SelectedComponent.Allocations, allocation =>
+            allocation.LocationId == "A" && allocation.Quantity == 0);
+
+        store.SaveComponent(new ComponentDraft
+        {
+            Id = original.Id, Sku = original.Sku, Name = original.Name,
+            Category = original.Category, PackageName = original.PackageName,
+            Location = "C", Description = original.Description, Quantity = 0, MinStock = 0,
+        });
+        vm.Refresh();
+        var empty = Assert.Single(vm.SelectedComponent!.DisplayAllocations);
+        Assert.Equal("C", empty.LocationId);
+        Assert.Equal(0, empty.Quantity);
+    }
+
     private InventoryStore CreateStore()
     {
         Directory.CreateDirectory(_root);
