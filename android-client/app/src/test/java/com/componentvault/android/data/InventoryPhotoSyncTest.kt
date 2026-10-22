@@ -65,6 +65,57 @@ class InventoryPhotoSyncTest {
         assertTrue(InventoryPhotoSync(context).summary().contains("照片同步完成"))
     }
 
+    @Test fun clearingDownloadsNotifiesUnifiedStatusAndShowsReferencedPhotoPending() {
+        val preferences = context.getSharedPreferences("component_vault_sync", android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val repository = InventoryRepository(context)
+        preferences.edit()
+            .putString(InventoryPreferenceKeys.SERVER_BASE_URL, "https://configured.example")
+            .putString(InventoryPreferenceKeys.API_TOKEN, "fixture-key")
+            .putString(InventoryPreferenceKeys.BOUND_SERVER_ID, "server")
+            .putString(InventoryPreferenceKeys.BOUND_ACCOUNT_ID, "account")
+            .putString(InventoryPreferenceKeys.SYNC_RUN_STATE, "Complete").commit()
+        val bytes = png(Color.BLUE)
+        val marker = WorkbookImageCodec.marker(bytes)
+        val key = marker.substringAfter('：')
+        val store = InventoryImageStore(context)
+        store.persistDownloaded(key, bytes)
+        val helper = InventoryDatabaseHelper(context)
+        try {
+            helper.writableDatabase.execSQL(
+                "INSERT INTO components(id,sku,name,category,package_name,location,description,quantity,min_stock,updated_at,deleted) VALUES('cached-photo','cached-photo','Photo','','','',?,1,0,'2026-10-22T00:00:00Z',0)",
+                arrayOf(marker))
+        } finally { helper.close() }
+        context.getSharedPreferences("photo-sync", android.content.Context.MODE_PRIVATE).edit().clear()
+            .putString("binding", "server/account").putInt("configuration_generation", 0)
+            .putString("state", "complete").putStringSet("ack", setOf(key)).commit()
+        val photos = InventoryPhotoSync(context)
+        val completedText = context.getString(com.componentvault.android.R.string.sync_run_complete)
+        assertTrue(photos.isCurrentSyncComplete())
+        assertTrue(repository.loadSyncConfiguration().syncSummary.contains(completedText))
+        var notifications = 0
+        var observed = repository.loadSyncConfiguration()
+        val unsubscribe = repository.observeSyncStatus {
+            notifications++
+            observed = repository.loadSyncConfiguration()
+        }
+        try {
+            photos.clearDownloads()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertTrue(notifications > 0)
+            assertFalse(observed.syncSummary.contains(completedText))
+            assertTrue(observed.syncSummary.contains(context.getString(com.componentvault.android.R.string.sync_run_pending)))
+            assertFalse(photos.isCurrentSyncComplete())
+            assertNull(store.read(key))
+            assertTrue(photos.summary().contains("待处理 1"))
+            val priorNotifications = notifications
+            unsubscribe()
+            context.getSharedPreferences("photo-sync", android.content.Context.MODE_PRIVATE).edit().putString("state", "complete").commit()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertEquals(priorNotifications, notifications)
+        } finally { unsubscribe() }
+    }
+
     @Test fun mismatchRejectedAndPruningOnlyRemovesUnreferencedDownloads() {
         val store = InventoryImageStore(context)
         val original = png(Color.RED)

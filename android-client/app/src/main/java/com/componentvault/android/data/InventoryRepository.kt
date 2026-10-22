@@ -525,8 +525,17 @@ class InventoryRepository(
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == InventoryPreferenceKeys.SYNC_RUN_STATE || key == InventoryPreferenceKeys.SYNC_RUN_PHASE) onChange()
         }
+        val photoPreferences = appContext.getSharedPreferences("photo-sync", Context.MODE_PRIVATE)
+        val photoListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "state" || key == "ack" || key == "binding" || key == "configuration_generation") onChange()
+        }
         preferences.registerOnSharedPreferenceChangeListener(listener)
-        return { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+        photoPreferences.registerOnSharedPreferenceChangeListener(photoListener)
+        // The returned unsubscribe closure retains both listeners until ViewModel.onCleared.
+        return {
+            preferences.unregisterOnSharedPreferenceChangeListener(listener)
+            photoPreferences.unregisterOnSharedPreferenceChangeListener(photoListener)
+        }
     }
 
     fun cancelSyncRequests() = syncService.cancelActiveRequests()

@@ -920,6 +920,7 @@ internal fun BomImportScreen(
                         presets = updated
                         message = context.getString(R.string.bom_preset_saved)
                         messageIsError = false
+                        viewModel.refreshSyncConfiguration()
                     }.onFailure {
                         message = it.message ?: context.getString(R.string.bom_preset_save_failed)
                         messageIsError = true
@@ -944,6 +945,7 @@ internal fun BomImportScreen(
                         presets = it
                         message = context.getString(R.string.bom_preset_deleted)
                         messageIsError = false
+                        viewModel.refreshSyncConfiguration()
                     }.onFailure {
                         message = it.message ?: context.getString(R.string.bom_preset_delete_failed)
                         messageIsError = true

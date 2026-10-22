@@ -97,9 +97,11 @@ class InventoryViewModel(
     )
         private set
 
-    private val stopObservingSync = repository.observeSyncStatus {
+    fun refreshSyncConfiguration() {
         uiState = uiState.copy(syncConfiguration = repository.loadSyncConfiguration())
     }
+
+    private val stopObservingSync = repository.observeSyncStatus(::refreshSyncConfiguration)
     private var activeSyncJob: kotlinx.coroutines.Job? = null
 
     init {
