@@ -33,8 +33,8 @@ internal class InventoryPhotoSync(private val context: Context) {
             running.get() -> "照片传输中"
             state.getString("state", "") == "running" -> "上次照片传输已中断，请同步重试"
             state.getString("state", "") == "unsupported" -> "服务器暂不支持照片同步"
-            pending > 0 -> "照片待同步"
             state.getInt("errors", 0) > 0 -> "照片部分失败，请同步重试"
+            pending > 0 -> "照片待同步"
             keys.isEmpty() -> "尚无元件照片"
             else -> "照片同步完成"
         }
