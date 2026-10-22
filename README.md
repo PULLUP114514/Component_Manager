@@ -6,14 +6,14 @@ Component Vault 面向电子元器件的入库、出库、查找与盘点。Andr
 
 | 你想做什么 | 入口 |
 | --- | --- |
-| 下载 Android APK 或 Windows 便携版 | [GitHub Releases](https://github.com/Rafael-ban/Component_Manager/releases/latest)；安装与更新说明见[应用更新](docs/app-updates.md) |
+| 下载 Android APK 或 Windows 便携版 | [GitHub Releases](https://github.com/Rafael-Ikaros/Component_Manager/releases/latest)；安装与更新说明见[应用更新](docs/app-updates.md) |
 | 在 Docker 或群晖上部署服务 | [Docker 快速部署](docs/docker-quickstart.md) |
 | 使用 BOM、批量扫码、库位或备份 | 下方的[使用指南](#使用指南) |
 | 开发或集成客户端 | [开发与集成](#开发与集成) |
 
 原生客户端无需服务器即可管理本地库存。准备同步时，先部署 API，在客户端“设置 → 连接与同步”填写服务器地址与账户密钥，再测试连接并同步。首次部署通过 `http://服务器IP:8787/setup` 配置管理员密钥；不要把 Docker Hub 或 GitHub 的登录凭据填进这里。服务端库存保存在持久化的 `/data` 中，升级时保留该数据卷。
 
-日常功能与界面调整先发布 **dev 预发布**，通过实际使用验证后再决定正式发布。应用“设置 → 关于”可选择更新通道；dev 安装包见 [全部 Releases](https://github.com/Rafael-ban/Component_Manager/releases)。发布渠道由更新日志的最新具体版本标题决定：`0.7.7-dev.1` 为预发布，`0.7.7` 为正式版；只修改 `Unreleased` 不发布。dev 不会替换 Docker `latest`，详见[发布流程](docs/runbook.md#versioning-workflow)。
+日常功能与界面调整先发布 **dev 预发布**，通过实际使用验证后再决定正式发布。应用“设置 → 关于”可选择更新通道；dev 安装包见 [全部 Releases](https://github.com/Rafael-Ikaros/Component_Manager/releases)。发布渠道由更新日志的最新具体版本标题决定：`0.7.7-dev.1` 为预发布，`0.7.7` 为正式版；只修改 `Unreleased` 不发布。dev 不会替换 Docker `latest`，详见[发布流程](docs/runbook.md#versioning-workflow)。
 
 Android 从 `0.7.8-dev.9` 起支持在“设置 → 关于”直接下载更新，查看进度、取消或重试，完成后打开系统安装界面；无需先跳转 GitHub 网页。Windows 仍下载便携 ZIP。具体步骤见[应用更新](docs/app-updates.md)。
 
@@ -48,7 +48,7 @@ Android 和 Windows 的标签 Excel 导出支持全部库位或多选指定库�
 
 ### 账户与数据隔离
 
-0.7.5 加入账户隔离：首次配置的密钥作为管理员账户，继续使用原有库存数据库；管理员可在 Web 设置中创建普通账户，普通账户使用各自的密钥和独立的库存数据库。客户端绑定已认证的服务器和账户身份后才上传本地数据，避免把原有库存推到其他账户。普通账户不能管理部署、日志、其他账户或 MQTT。操作步骤见[多用户账户教程](docs/accounts.md)，设计与迁移边界见[账户隔离实施计划](docs/account-isolation-plan.md)。安装包与镜像的发布状态以对应 [Release](https://github.com/Rafael-ban/Component_Manager/releases) 为准。
+0.7.5 加入账户隔离：首次配置的密钥作为管理员账户，继续使用原有库存数据库；管理员可在 Web 设置中创建普通账户，普通账户使用各自的密钥和独立的库存数据库。客户端绑定已认证的服务器和账户身份后才上传本地数据，避免把原有库存推到其他账户。普通账户不能管理部署、日志、其他账户或 MQTT。操作步骤见[多用户账户教程](docs/accounts.md)，设计与迁移边界见[账户隔离实施计划](docs/account-isolation-plan.md)。安装包与镜像的发布状态以对应 [Release](https://github.com/Rafael-Ikaros/Component_Manager/releases) 为准。
 
 管理台使用 12 小时 HttpOnly 后端会话，账户密钥仅用于登录，不长期保存在浏览器。管理员可删除普通账户及其服务端数据库资料；客户端本地副本不会被远程清除，管理员原库不可删除。同步页面提供按设备登记、上传/拉取审计、冲突双方快照与人工处理记录。旧客户端未发送设备 ID 的拉取显示为未知设备；此前历史不会被补造。
 
@@ -120,7 +120,7 @@ cd server
 
 ## 项目与作者
 
-作者：**Rafael-Ikaros**。源代码、问题反馈与发布文件位于 [Rafael-ban/Component_Manager](https://github.com/Rafael-ban/Component_Manager)。
+作者：**Rafael-Ikaros**。源代码、问题反馈与发布文件位于 [Rafael-Ikaros/Component_Manager](https://github.com/Rafael-Ikaros/Component_Manager)。
 
 Android CI 的扫码匹配和数量边界检查独立报告，超时与回归日志的查看方法见[测试排查](docs/runbook.md#android-测试超时排查)。
 
@@ -136,6 +136,6 @@ Android、Windows 保存的元件照片可在同账户下同步，Web 登录后�
 
 服务端照片保存在账户数据库旁的 `.photos` 目录，沿用整个 `/data` 挂载，无新增环境变量。升级、重试、替换与备份方法见[照片同步教程](docs/photo-sync.md)。此 dev 不更新 Docker 正式标签。
 
-同步恢复增强候选（dev20）：设置页统一显示库存、BOM 预设与照片的待处理情况，区分同步中、完成、部分完成、失败、取消与中断。库存成功提交后立即记录库存完成时间；后续照片或预设未完成不会抹去已完成结果。关闭应用后遗留的运行状态会提示中断，可通过“立即同步”重试；运行时可取消。离线保存仍先落本机，同步期间的新改动保留为待下轮处理。库存/BOM/照片的成功时间分别标明范围。
+同步恢复增强（dev20）：设置页统一显示库存、BOM 预设与照片的待处理情况，区分同步中、完成、部分完成、失败、取消与中断。库存成功提交后立即记录库存完成时间；后续照片或预设未完成不会抹去已完成结果。关闭应用后遗留的运行状态会提示中断，可通过“立即同步”重试；运行时可取消。离线保存仍先落本机，同步期间的新改动保留为待下轮处理。库存/BOM/照片的成功时间分别标明范围。
 
 当前项目 GitHub 地址为 [Rafael-Ikaros/Component_Manager](https://github.com/Rafael-Ikaros/Component_Manager)。dev20 更新检测与可信下载链接已切换到新地址，修复改名后旧 API 返回 301 导致的检查失败。
