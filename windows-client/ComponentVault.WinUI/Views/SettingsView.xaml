@@ -163,9 +163,10 @@
                                 <TextBlock
                                     Grid.Row="1"
                                     Style="{StaticResource CaptionTextStyle}"
-                                    Text="最近同步" />
+                                    Text="库存最近完成" />
                                 <TextBox
                                     x:Name="LastSyncedTextBox"
+                                    Text="{Binding InventoryLastSuccess}"
                                     Grid.Row="1"
                                     Grid.Column="1"
                                     IsReadOnly="True" />
@@ -175,6 +176,7 @@
                                     Text="最近结果" />
                                 <TextBox
                                     x:Name="LastResultTextBox"
+                                    Text="{Binding SyncStatusSummary}"
                                     Grid.Row="2"
                                     Grid.Column="1"
                                     IsReadOnly="True"
@@ -199,6 +201,9 @@
                                     Text="{Binding SyncActionHint}"
                                     TextWrapping="Wrap" />
                             </Grid>
+                            <Button Content="取消同步" Click="OnCancelSyncClicked" IsEnabled="{Binding CanCancelSync}" />
+                            <TextBlock Text="{Binding SyncScopeSummary}" TextWrapping="Wrap" />
+                            <TextBlock Text="LWW 自动处理同一记录的更新；服务器报告库存冲突时，请检查提示并重试。本机保存成功不代表其他设备已经同步。" TextWrapping="Wrap" />
                             <TextBlock Text="{Binding PhotoSyncSummary}" TextWrapping="Wrap" />
                             <Button Content="清理照片下载缓存" Click="OnClearPhotoCacheClicked" IsEnabled="{Binding CanRunSyncActions}" />
                         </StackPanel>
@@ -326,10 +331,10 @@
                                 Spacing="4">
                                 <HyperlinkButton
                                     Padding="0,4"
-                                    NavigateUri="https://github.com/Rafael-ban/Component_Manager"
+                                    NavigateUri="https://github.com/Rafael-Ikaros/Component_Manager"
                                     Content="GitHub 项目" />
                                 <HyperlinkButton
-                                    NavigateUri="https://github.com/Rafael-ban/Component_Manager/blob/master/LICENSE.txt"
+                                    NavigateUri="https://github.com/Rafael-Ikaros/Component_Manager/blob/master/LICENSE.txt"
                                     Content="查看许可证" />
                             </StackPanel>
                         </StackPanel>

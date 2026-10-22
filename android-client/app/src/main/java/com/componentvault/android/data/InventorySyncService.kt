@@ -25,7 +25,86 @@ internal class InventorySyncService(
     private val preferences: SharedPreferences,
     private val syncConfigurationLock: Any,
 ) {
-    private val syncMutex = Mutex()
+    private val syncMutex = processSyncMutex
+    @Volatile private var activeConnection: HttpURLConnection? = null
+    @Volatile private var activePhotoSync: InventoryPhotoSync? = null
+    private var activeGeneration: Int? = null
+    @Volatile private var syncContext: kotlin.coroutines.CoroutineContext? = null
+
+    internal fun cancelActiveRequests() {
+        activeConnection?.disconnect()
+        activePhotoSync?.cancelActiveRequest()
+    }
+
+    internal fun recoverInterruptedRun() {
+        if (!startupRecovered.compareAndSet(false, true)) return
+        if (preferences.getString(InventoryPreferenceKeys.SYNC_RUN_STATE, "") == "Running") {
+            saveRunState("Interrupted", preferences.getString(InventoryPreferenceKeys.SYNC_RUN_PHASE, "").orEmpty(),
+                text(R.string.sync_run_interrupted))
+        }
+    }
+
+    private fun saveRunState(state: String, phase: String, message: String? = null) {
+        preferences.edit().putString(InventoryPreferenceKeys.SYNC_RUN_STATE, state)
+            .putString(InventoryPreferenceKeys.SYNC_RUN_PHASE, phase)
+            .putInt(InventoryPreferenceKeys.SYNC_RUN_GENERATION,
+                activeGeneration ?: preferences.getInt(InventoryPreferenceKeys.SYNC_RUN_GENERATION, 0))
+            .apply { if (message != null) putString(InventoryPreferenceKeys.LAST_SYNC_MESSAGE, message) }.commit()
+    }
+
+    private fun ensureSyncActive() { syncContext?.ensureActive() }
+
+    internal fun pendingSummary(): Pair<Int, Int> {
+        val countHelper = InventoryDatabaseHelper(appContext)
+        val inventory = try {
+            countHelper.readableDatabase.rawQuery("SELECT COUNT(*) FROM sync_queue", null).use {
+                it.moveToFirst()
+                it.getInt(0)
+            }
+        } finally { countHelper.close() }
+        val generation = preferences.getInt(InventoryPreferenceKeys.SYNC_CONFIG_GENERATION, 0)
+        val ack = if (preferences.getInt(InventoryPreferenceKeys.BOM_SUCCESS_GENERATION, 0) == generation)
+            JSONObject(preferences.getString(InventoryPreferenceKeys.BOM_ACK_VERSIONS, "{}").orEmpty()) else JSONObject()
+        val bom = try {
+            val records = bomPresetStore.syncSnapshot()
+            (0 until records.length()).count { index ->
+                val record = records.getJSONObject(index)
+                val confirmed = ack.optString(record.getString("id"))
+                confirmed.isBlank() || !SyncProtocol.timestampsEqual(record.getString("updated_at"), confirmed)
+            }
+        } catch (_: com.componentvault.android.data.bom.BomPresetStoreException) { -1 }
+        return inventory to bom
+    }
+
+    internal fun summary(currentRun: Boolean, pending: Pair<Int, Int>): String {
+        val configured = preferences.getString(InventoryPreferenceKeys.SERVER_BASE_URL, "").orEmpty().isNotBlank() &&
+            preferences.getString(InventoryPreferenceKeys.API_TOKEN, "").orEmpty().isNotBlank()
+        val status = if (!configured) text(R.string.sync_run_not_configured) else {
+            val state = if (currentRun) preferences.getString(InventoryPreferenceKeys.SYNC_RUN_STATE, "").orEmpty() else ""
+            text(when (state) {
+                "Running" -> R.string.sync_run_running
+                "Interrupted" -> R.string.sync_run_interrupted
+                "Cancelled" -> R.string.sync_run_cancelled
+                "Complete" -> if (pending.first != 0 || pending.second != 0 ||
+                    !InventoryPhotoSync(appContext).isCurrentSyncComplete())
+                    R.string.sync_run_pending else R.string.sync_run_complete
+                "Partial" -> if (pending.first != 0 || pending.second != 0) R.string.sync_run_new_changes_pending else R.string.sync_run_partial
+                "Failed" -> R.string.sync_run_failed
+                else -> R.string.sync_run_pending
+            })
+        }
+        val phase = if (currentRun) preferences.getString(InventoryPreferenceKeys.SYNC_RUN_PHASE, "").orEmpty() else ""
+        val phaseLabel = when (phase) {
+            "Connection" -> text(R.string.sync_phase_connection)
+            "Inventory" -> text(R.string.sync_phase_inventory)
+            "BOM" -> text(R.string.sync_phase_bom)
+            "Photos" -> text(R.string.sync_phase_photos)
+            else -> ""
+        }
+        return status + (if (phaseLabel.isBlank()) "" else " ($phaseLabel)") + " " +
+            (if (pending.second < 0) text(R.string.sync_pending_bom_unreadable, pending.first)
+            else text(R.string.sync_pending_counts, pending.first, pending.second))
+    }
     private val bomPresetStore = com.componentvault.android.data.bom.BomPresetStore(java.io.File(appContext.filesDir, "bom-presets.json"))
 
     internal suspend fun testConnection(settings: SyncConfiguration): OperationResult = withContext(Dispatchers.IO) {
@@ -45,6 +124,7 @@ internal class InventorySyncService(
                     if (endpoint.usesExternalAddress) " " + text(R.string.sync_via_external) else "",
             )
         } catch (exception: Exception) {
+            if (exception is kotlinx.coroutines.CancellationException) throw exception
             OperationResult(
                 isSuccess = false,
                 message = exception.message ?: text(R.string.sync_connection_failed),
@@ -55,19 +135,29 @@ internal class InventorySyncService(
     internal suspend fun runSync(configuration: () -> SyncConfiguration): OperationResult = syncMutex.withLock {
         withContext(Dispatchers.IO) {
             val settings = configuration()
+            syncContext = currentCoroutineContext()
+            activeGeneration = preferences.getInt(InventoryPreferenceKeys.SYNC_CONFIG_GENERATION, 0)
+            saveRunState("Running", "Connection")
             if (settings.serverBaseUrl.isBlank()) {
+                saveRunState("Failed", "Connection", text(R.string.sync_run_not_configured))
+                syncContext = null
+                activeGeneration = null
                 return@withContext OperationResult(
                     false,
-                    text(R.string.sync_enter_server_url_before_sync),
+                    text(R.string.sync_run_not_configured),
                 )
             }
             if (settings.apiToken.isBlank()) {
+                saveRunState("Failed", "Connection", text(R.string.sync_run_not_configured))
+                syncContext = null
+                activeGeneration = null
                 return@withContext OperationResult(
                     false,
-                    text(R.string.sync_enter_api_token_before_sync),
+                    text(R.string.sync_run_not_configured),
                 )
             }
 
+            var inventoryComplete = false
             try {
                 val endpoint = resolveSyncEndpoint(settings)
                 val identity = requireSyncIdentity(endpoint)
@@ -100,6 +190,8 @@ internal class InventorySyncService(
                             .commit()) { text(R.string.sync_identity_save_failed) }
                     }
                 }
+                ensureSyncActive()
+                saveRunState("Running", "Inventory")
                 val pushPayload = buildPushPayload(settings.deviceId)
                 val pushResponse = callJson(
                     settings = endpoint.configuration,
@@ -128,6 +220,7 @@ internal class InventorySyncService(
 
                 synchronized(syncConfigurationLock) {
                     checkSyncConfigurationUnchanged(settings)
+                    ensureSyncActive()
                     databaseHelper.writableDatabase.use { db ->
                         db.beginTransaction()
                         try {
@@ -142,16 +235,27 @@ internal class InventorySyncService(
                         }
                     }
                     saveSyncCursor(cursorDecision)
+                    preferences.edit()
+                        .putString(InventoryPreferenceKeys.LAST_SYNCED_AT, pullResponse.optString("server_time"))
+                        .putInt(InventoryPreferenceKeys.INVENTORY_SUCCESS_GENERATION,
+                            preferences.getInt(InventoryPreferenceKeys.SYNC_CONFIG_GENERATION, 0)).commit()
                 }
 
+                inventoryComplete = true
                 val acceptedComponents = pushResponse.optInt("accepted_components")
                 val acceptedMovements = pushResponse.optInt("accepted_stock_movements")
                 val pulledComponents = pullResponse.optJSONArray("components")?.length() ?: 0
                 val pulledMovements = pullResponse.optJSONArray("stock_movements")?.length() ?: 0
                 val serverTime = pullResponse.optString("server_time")
+                ensureSyncActive()
+                saveRunState("Running", "BOM")
                 val presetResult = syncBomPresets(endpoint, settings, accountId)
+                ensureSyncActive()
+                saveRunState("Running", "Photos")
                 val photoContext = currentCoroutineContext()
-                val photoResult = InventoryPhotoSync(appContext).sync(endpoint.configuration, serverId, accountId,
+                val photoSync = InventoryPhotoSync(appContext)
+                activePhotoSync = photoSync
+                val photoResult = photoSync.sync(endpoint.configuration, serverId, accountId,
                     endpoint.probe.optInt("photo_protocol") == 1,
                     checkBinding = { photoContext.ensureActive(); synchronized(syncConfigurationLock) {
                         checkSyncConfigurationUnchanged(settings)
@@ -166,11 +270,19 @@ internal class InventorySyncService(
                     pulledComponents,
                     pulledMovements,
                 ) + (if (endpoint.usesExternalAddress) " " + text(R.string.sync_via_external) else "") + presetResult.second + photoResult.second
-                val allComplete = presetResult.first && photoResult.first
-                val successMessage = if (allComplete) inventoryMessage else "部分完成：库存已完成。$inventoryMessage （上次同步时间仅代表库存同步。）"
+                val pending = pendingSummary()
+                val localChangesRemain = pending.first != 0 || pending.second != 0 || !photoSync.isCurrentSyncComplete()
+                val allComplete = presetResult.first && photoResult.first && !localChangesRemain
+                val successMessage = when {
+                    allComplete -> inventoryMessage
+                    presetResult.first && photoResult.first -> text(R.string.sync_run_new_changes_pending) + " " + inventoryMessage
+                    else -> text(R.string.sync_run_partial) + " " + inventoryMessage
+                }
 
                 synchronized(syncConfigurationLock) {
                     checkSyncConfigurationUnchanged(settings)
+                    ensureSyncActive()
+                    saveRunState(if (allComplete) "Complete" else "Partial", "", successMessage)
                     updateSyncStatus(
                         lastSyncedAt = serverTime,
                         message = successMessage,
@@ -183,7 +295,11 @@ internal class InventorySyncService(
                     message = successMessage,
                 )
             } catch (exception: Exception) {
-                if (exception is kotlinx.coroutines.CancellationException) throw exception
+                if (exception is kotlinx.coroutines.CancellationException || syncContext?.get(kotlinx.coroutines.Job)?.isCancelled == true) {
+                    saveRunState("Cancelled", preferences.getString(InventoryPreferenceKeys.SYNC_RUN_PHASE, "").orEmpty(), text(R.string.sync_run_cancelled))
+                    throw kotlinx.coroutines.CancellationException(text(R.string.sync_run_cancelled), exception)
+                }
+                saveRunState(if (inventoryComplete) "Partial" else "Failed", preferences.getString(InventoryPreferenceKeys.SYNC_RUN_PHASE, "").orEmpty())
                 updateSyncStatus(
                     lastSyncedAt = null,
                     message = exception.message ?: text(R.string.sync_failed),
@@ -193,13 +309,18 @@ internal class InventorySyncService(
                     isSuccess = false,
                     message = exception.message ?: text(R.string.sync_failed),
                 )
+            } finally {
+                syncContext = null
+                activeGeneration = null
+                activeConnection = null
+                activePhotoSync = null
             }
         }
     }
 
     /** Preset failures are partial failures: successful inventory sync remains committed. */
     private fun syncBomPresets(endpoint: ResolvedSyncEndpoint<JSONObject>, settings: SyncConfiguration, accountId: String): Pair<Boolean, String> {
-        if (endpoint.probe.optInt("bom_preset_protocol") != 1) return false to " 服务器暂不支持 BOM 预设同步。"
+        if (endpoint.probe.optInt("bom_preset_protocol") != 1) return false to " " + text(R.string.sync_bom_unsupported)
         return try {
             val outbound = synchronized(syncConfigurationLock) {
                 checkSyncConfigurationUnchanged(settings)
@@ -207,15 +328,25 @@ internal class InventorySyncService(
             }
             val response = callJson(endpoint.configuration, "POST", "/sync/bom-presets",
                 JSONObject().put("device_id", settings.deviceId).put("presets", outbound), accountId = accountId)
-            check(response.optInt("bom_preset_protocol") == 1) { "BOM 预设同步响应版本不受支持。" }
+            check(response.optInt("bom_preset_protocol") == 1) { text(R.string.sync_bom_protocol_unsupported) }
             synchronized(syncConfigurationLock) {
                 checkSyncConfigurationUnchanged(settings)
-                bomPresetStore.mergeRemote(response.getJSONArray("presets"), outbound)
+                ensureSyncActive()
+                val remote = response.getJSONArray("presets")
+                bomPresetStore.mergeRemote(remote, outbound)
+                val versions = JSONObject()
+                for (index in 0 until remote.length()) remote.getJSONObject(index).let {
+                    versions.put(it.getString("id"), it.getString("updated_at"))
+                }
+                preferences.edit().putString(InventoryPreferenceKeys.BOM_ACK_VERSIONS, versions.toString())
+                    .putString(InventoryPreferenceKeys.BOM_LAST_SYNCED_AT, java.time.Instant.now().toString())
+                    .putInt(InventoryPreferenceKeys.BOM_SUCCESS_GENERATION,
+                        preferences.getInt(InventoryPreferenceKeys.SYNC_CONFIG_GENERATION, 0)).commit()
             }
-            true to " BOM 预设已同步。"
+            true to " " + text(R.string.sync_bom_complete)
         } catch (error: Exception) {
             if (error is kotlinx.coroutines.CancellationException) throw error
-            false to " BOM 预设未同步：${error.message ?: "请重试"}"
+            false to " " + text(R.string.sync_bom_failed, error.message ?: text(R.string.sync_failed))
         }
     }
     private fun buildPushPayload(deviceId: String): SyncPayload {
@@ -389,7 +520,9 @@ internal class InventorySyncService(
         timeoutMillis: Int = 60_000,
         accountId: String? = null,
     ): JSONObject {
+        ensureSyncActive()
         val connection = URL("${settings.serverBaseUrl.trimEnd('/')}$path").openConnection() as HttpURLConnection
+        activeConnection = connection
         connection.connectTimeout = timeoutMillis
         connection.readTimeout = timeoutMillis
         connection.requestMethod = method
@@ -398,6 +531,7 @@ internal class InventorySyncService(
         if (method == "GET" && path.startsWith("/sync/pull")) connection.setRequestProperty("X-Component-Vault-Device-Id", settings.deviceId)
         connection.setRequestProperty("Accept", "application/json")
         return try {
+            ensureSyncActive()
             if (body != null) {
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/json")
@@ -407,6 +541,7 @@ internal class InventorySyncService(
             }
             val responseCode = connection.responseCode
             val responseText = readResponseText(connection, responseCode)
+            ensureSyncActive()
             if (responseCode !in 200..299) {
                 if (path == "/auth/me" && responseCode == 404) {
                     throw IllegalStateException(text(R.string.sync_identity_route_unavailable))
@@ -426,6 +561,7 @@ internal class InventorySyncService(
                 }
             }
         } finally {
+            if (activeConnection === connection) activeConnection = null
             connection.disconnect()
         }
     }
@@ -727,6 +863,11 @@ internal class InventorySyncService(
 
     private fun text(@StringRes resId: Int, vararg args: Any): String =
         appContext.getString(resId, *args)
+
+    companion object {
+        private val startupRecovered = java.util.concurrent.atomic.AtomicBoolean(false)
+        private val processSyncMutex = Mutex()
+    }
 
     private data class SyncPayload(
         val payload: JSONObject,

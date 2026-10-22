@@ -75,7 +75,7 @@ internal sealed class SyncResultApplier(InventoryDatabase database)
         SyncSettingsRepository.UpdateStoredSyncStatus(
             connection,
             result.PullResponse.ServerTime,
-            $"同步完成{(string.IsNullOrWhiteSpace(result.UsedServerBaseUrl) ? string.Empty : $"（{result.UsedServerBaseUrl}）")}。上传 元器件:{result.AcceptedComponents} 变动:{result.AcceptedStockMovements}；下载 元器件:{result.PullResponse.Components.Count} 变动:{result.PullResponse.StockMovements.Count}。",
+            $"库存同步完成；BOM 预设与照片待完成{(string.IsNullOrWhiteSpace(result.UsedServerBaseUrl) ? string.Empty : $"（{result.UsedServerBaseUrl}）")}。上传 元器件:{result.AcceptedComponents} 变动:{result.AcceptedStockMovements}；下载 元器件:{result.PullResponse.Components.Count} 变动:{result.PullResponse.StockMovements.Count}。",
             preserveTimestamp: false
         );
 

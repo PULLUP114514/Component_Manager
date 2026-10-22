@@ -3,13 +3,14 @@ using ComponentVault.WinUI.Models;
 
 namespace ComponentVault.WinUI.Services;
 
-public sealed record PhotoSyncState(string State = "pending", int Uploaded = 0, int Downloaded = 0, int Pending = 0, int Errors = 0, string? LastSuccess = null, string Detail = "", string[]? CompletedKeys = null, string? ServerId = null, string? AccountId = null)
+public sealed record PhotoSyncState(string State = "pending", int Uploaded = 0, int Downloaded = 0, int Pending = 0, int Errors = 0, string? LastSuccess = null, string Detail = "", string[]? CompletedKeys = null, string? ServerId = null, string? AccountId = null, string? ServerUrl = null)
 {
     public string Summary => $"照片：{(State == "complete" ? "完成" : State == "running" ? "上次传输中断，待重试" : State == "unsupported" ? "服务器暂不支持" : State == "partial" ? "部分完成，请重试" : "本地已保存，待同步")} · 已上传 {Uploaded} · 已下载 {Downloaded} · 待处理 {Pending} · 错误 {Errors}" + (LastSuccess is null ? "" : $" · 最近完成 {LastSuccess}") + (Detail.Length == 0 ? "" : " · " + Detail);
 }
 
 public sealed class PhotoSyncService(InventoryStore store, SyncApiClient api)
 {
+    public event Action? ProgressChanged;
     private string Root => Path.Combine(Path.GetDirectoryName(store.DatabasePath)!, "images");
     private string StatePath => Path.Combine(Root, "photo-sync-state.json");
     public PhotoSyncState ReadState()
@@ -22,14 +23,22 @@ public sealed class PhotoSyncService(InventoryStore store, SyncApiClient api)
         Directory.CreateDirectory(Root);
         File.WriteAllText(StatePath + ".tmp", JsonSerializer.Serialize(state));
         File.Move(StatePath + ".tmp", StatePath, true);
+        ProgressChanged?.Invoke();
     }
     private HashSet<string> Keys() => store.GetComponents().Where(c => !c.Deleted).Select(c => PrivateProductImageStore.KeyFromDescription(c.Description)).OfType<string>().ToHashSet(StringComparer.Ordinal);
-    public string Summary
+    public string Summary => CurrentState.Summary;
+    public PhotoSyncState CurrentState
     {
         get
         {
-            var state = ReadState(); var completed = state.CompletedKeys ?? []; var missing = Keys().Count(k => !completed.Contains(k) || PrivateProductImageStore.Resolve(Root, PrivateProductImageStore.MarkerPrefix + k) is null);
-            return (missing > 0 && state.State == "complete" ? state with { State = "pending", Pending = missing } : state).Summary;
+            var state = ReadState();
+            var binding = store.GetBoundSyncIdentity();
+            if (state.ServerUrl != store.GetSyncConfiguration().ServerBaseUrl
+                || state.ServerId != binding.ServerId || state.AccountId != binding.AccountId)
+                return new PhotoSyncState(Pending: Keys().Count, Detail: "当前服务器或账户的照片尚未确认，请重新同步；本地照片已保留。");
+            var completed = state.CompletedKeys ?? [];
+            var missing = Keys().Count(k => !completed.Contains(k) || PrivateProductImageStore.Resolve(Root, PrivateProductImageStore.MarkerPrefix + k) is null);
+            return missing > 0 && state.State == "complete" ? state with { State = "pending", Pending = missing } : state;
         }
     }
     public string ClearCache()
@@ -41,7 +50,12 @@ public sealed class PhotoSyncService(InventoryStore store, SyncApiClient api)
     }
     public async Task<string> RunAsync(SyncConfiguration expected, SyncRunResult result, CancellationToken cancellation)
     {
-        var old = ReadState(); var keys = Keys(); var state = new PhotoSyncState("running", Pending: keys.Count, LastSuccess: old.LastSuccess, ServerId: result.Identity?.ServerId, AccountId: result.Identity?.AccountId);
+        var old = CurrentState;
+        if (old.ServerUrl != expected.ServerBaseUrl || old.ServerId != result.Identity?.ServerId || old.AccountId != result.Identity?.AccountId)
+            old = new PhotoSyncState();
+        var keys = Keys();
+        var state = new PhotoSyncState("running", Pending: keys.Count, LastSuccess: old.LastSuccess,
+            ServerId: result.Identity?.ServerId, AccountId: result.Identity?.AccountId, ServerUrl: expected.ServerBaseUrl);
         Save(state);
         try
         {
@@ -84,7 +98,7 @@ public sealed class PhotoSyncService(InventoryStore store, SyncApiClient api)
             CheckBinding();
             state = state with { State = state.Errors == 0 ? "complete" : "partial", LastSuccess = state.Errors == 0 ? DateTimeOffset.Now.ToString("g") : old.LastSuccess };
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             state = state with { State = "pending", Detail = "照片同步已取消，已完成文件保留，请重试。" };
             throw;

@@ -155,6 +155,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public InfoBarSeverity SyncRiskSeverity => _sync.HasSyncRisk
         ? InfoBarSeverity.Warning : InfoBarSeverity.Success;
     public string SyncConfigurationSummary => _sync.SyncConfigurationSummary;
+    public string SyncStatusSummary => _sync.SyncStatusSummary;
+    public string InventoryLastSuccess => _sync.InventoryLastSuccess;
+    public string SyncScopeSummary => _sync.SyncScopeSummary;
+    public bool CanCancelSync => _sync.CanCancelSync;
+    public void CancelSync() => _sync.CancelSync();
     public string PhotoSyncSummary => _sync.PhotoSyncSummary;
     public string ClearPhotoCache() => _sync.ClearPhotoCache();
     public string SyncActionHint => _sync.SyncActionHint;

@@ -130,8 +130,8 @@ class ApkUpdateDownloaderTest {
         version = requireNotNull(NumericSemanticVersion.parse(tag)),
         publishedAt = "",
         releaseNotes = "",
-        pageUrl = "https://github.com/Rafael-ban/Component_Manager/releases/tag/$tag",
-        apkUrl = "https://github.com/Rafael-ban/Component_Manager/releases/download/$tag/component-vault-android-release.apk",
+        pageUrl = "https://github.com/Rafael-Ikaros/Component_Manager/releases/tag/$tag",
+        apkUrl = "https://github.com/Rafael-Ikaros/Component_Manager/releases/download/$tag/component-vault-android-release.apk",
     )
 
     private fun apkFile() = File(

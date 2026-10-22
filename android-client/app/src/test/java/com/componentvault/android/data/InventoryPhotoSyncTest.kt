@@ -46,6 +46,9 @@ class InventoryPhotoSyncTest {
                 "INSERT INTO components(id,sku,name,category,package_name,location,description,quantity,min_stock,updated_at,deleted) VALUES('photo-part','photo-part','Photo','','','',?,1,0,'2026-10-22T00:00:00Z',0)",
                 arrayOf(marker))
         } finally { helper.close() }
+        context.getSharedPreferences("component_vault_sync", android.content.Context.MODE_PRIVATE).edit()
+            .putString(InventoryPreferenceKeys.BOUND_SERVER_ID, "server")
+            .putString(InventoryPreferenceKeys.BOUND_ACCOUNT_ID, "account").commit()
         val photos = InventoryPhotoSync(context)
         val settings = com.componentvault.android.model.SyncConfiguration("test", "", "", false, "", "")
         fun manifest() = org.json.JSONObject().put("photo_protocol", 1).put("photos", org.json.JSONArray().put(

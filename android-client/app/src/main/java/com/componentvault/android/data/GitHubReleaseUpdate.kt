@@ -61,7 +61,7 @@ internal sealed interface ReleaseCheckResult {
 }
 
 internal object GitHubReleaseParser {
-    private const val owner = "Rafael-ban"
+    private const val owner = "Rafael-Ikaros"
     private const val repository = "Component_Manager"
     private const val apkName = "component-vault-android-release.apk"
 
@@ -183,8 +183,8 @@ internal class GitHubReleaseUpdateChecker {
     }
 
     private companion object {
-        const val latestReleaseUrl = "https://api.github.com/repos/Rafael-ban/Component_Manager/releases/latest"
-        const val releasesUrl = "https://api.github.com/repos/Rafael-ban/Component_Manager/releases?per_page=30"
+        const val latestReleaseUrl = "https://api.github.com/repos/Rafael-Ikaros/Component_Manager/releases/latest"
+        const val releasesUrl = "https://api.github.com/repos/Rafael-Ikaros/Component_Manager/releases?per_page=30"
         const val maxResponseBytes = 512 * 1024
     }
 }

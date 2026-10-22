@@ -48,6 +48,30 @@ public sealed class PhotoSyncTests : IDisposable
         Assert.Contains("服务器暂不支持", summary); Assert.Equal("unsupported", new PhotoSyncService(store, new SyncApiClient()).ReadState().State);
     }
     [Fact]
+    public async Task DifferentPhotoBindingShowsPendingAndDoesNotReuseLastSuccessOrDeleteOriginal()
+    {
+        Directory.CreateDirectory(_root);
+        var store = new InventoryStore(Path.Combine(_root, "inventory.db")); store.Initialize();
+        store.SaveSyncConfiguration("https://photos.test", "", "token", false);
+        var identity = new SyncAccountIdentity { ServerId = "server", AccountId = "account", Name = "test", Role = "admin" };
+        Assert.Null(store.ValidateAndBindSyncIdentity(identity, store.GetSyncConfiguration()));
+        var images = Path.Combine(_root, "images");
+        var key = PrivateProductImageStore.Persist(images, Png);
+        store.SaveComponent(new ComponentDraft { Sku = "PHOTO", Name = "Photo", Category = "test", PackageName = "0603", Location = "A", Quantity = 0, MinStock = 0, Description = PrivateProductImageStore.MarkerPrefix + key });
+        var previous = new PhotoSyncState("complete", LastSuccess: "old-scope-time", CompletedKeys: [key],
+            ServerId: "server", AccountId: "old-account", ServerUrl: "https://photos.test");
+        File.WriteAllText(Path.Combine(images, "photo-sync-state.json"), JsonSerializer.Serialize(previous));
+        var service = new PhotoSyncService(store, new SyncApiClient());
+        Assert.Equal("pending", service.CurrentState.State);
+        Assert.Equal(1, service.CurrentState.Pending);
+        Assert.Null(service.CurrentState.LastSuccess);
+        await service.RunAsync(store.GetSyncConfiguration(), new SyncRunResult { IsSuccess = true, Message = "", Identity = identity }, default);
+        Assert.Null(service.ReadState().LastSuccess);
+        Assert.True(File.Exists(Path.Combine(images, key)));
+        File.WriteAllText(Path.Combine(images, "photo-sync-state.json"), JsonSerializer.Serialize(previous with { AccountId = "account", ServerUrl = null }));
+        Assert.Equal("pending", service.CurrentState.State); // Legacy progress without a server URL must be reconfirmed.
+    }
+    [Fact]
     public async Task CancellationPersistsPendingAndPropagates()
     {
         Directory.CreateDirectory(_root); var store = new InventoryStore(Path.Combine(_root, "inventory.db")); store.Initialize();

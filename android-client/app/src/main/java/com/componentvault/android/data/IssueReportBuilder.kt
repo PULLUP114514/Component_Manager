@@ -10,7 +10,7 @@ internal sealed interface IssueUrlResult {
 
 internal object IssueReportBuilder {
     const val MaxUrlBytes=7_000
-    private const val Base="https://github.com/Rafael-ban/Component_Manager/issues/new"
+    private const val Base="https://github.com/Rafael-Ikaros/Component_Manager/issues/new"
     fun report(title:String,description:String,diagnostics:String?,device:String?):String=buildString{
         appendLine("# ${title.trim()}");appendLine();appendLine("## Description");appendLine(description.trim())
         device?.let{appendLine();appendLine("## App and device");appendLine(it)}

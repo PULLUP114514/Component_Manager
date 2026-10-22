@@ -17,12 +17,15 @@ public sealed class SyncCoordinator : ObservableObject, IDisposable
     private string _statusMessage;
     private bool _isBusy;
     private bool _disposed;
+    private CancellationTokenSource? _runningSync;
 
     public SyncCoordinator(InventoryStore store, InventorySyncService syncService, Action refresh)
     {
         _store = store;
         _syncService = syncService;
         _refresh = refresh;
+        _syncService.RecoverInterrupted();
+        _syncService.ProgressChanged += Refresh;
         _configuration = store.GetSyncConfiguration();
         _statusMessage = _configuration.LastSyncMessage;
     }
@@ -56,16 +59,19 @@ public sealed class SyncCoordinator : ObservableObject, IDisposable
         }
     }
 
+    public bool CanCancelSync => _runningSync is not null && !_runningSync.IsCancellationRequested;
+    public void CancelSync() { _runningSync?.Cancel(); OnPropertyChanged(nameof(CanCancelSync)); }
+    public string SyncStatusSummary => _syncService.StatusSummary;
+    public string InventoryLastSuccess => _syncService.InventoryLastSuccess;
+    public string SyncScopeSummary => _syncService.ScopeSummary;
+
     public string PhotoSyncSummary => _syncService.PhotoSummary;
     public string ClearPhotoCache() { var message = _syncService.ClearPhotoCache(); _refresh(); return message; }
 
     public bool CanRunSyncActions => !IsBusy;
     public string SyncButtonLabel => IsBusy ? "同步中" : "立即同步";
-    public string ShellSyncSummary => string.IsNullOrWhiteSpace(SyncConfiguration.LastSyncedAt)
-        ? "尚未完成同步" : $"最近同步：{SyncConfiguration.LastSyncedAt}";
-    public string OverviewSyncSummary => string.IsNullOrWhiteSpace(SyncConfiguration.LastSyncMessage)
-        ? $"{ShellSyncSummary} · 等待首次同步"
-        : $"{ShellSyncSummary} · {SyncConfiguration.LastSyncMessage}";
+    public string ShellSyncSummary => SyncStatusSummary;
+    public string OverviewSyncSummary => SyncStatusSummary;
     public string SyncEndpointDisplay => string.IsNullOrWhiteSpace(SyncConfiguration.ServerBaseUrl)
         ? "未配置" : SyncConfiguration.ServerBaseUrl;
     public string SyncTokenDisplay => string.IsNullOrWhiteSpace(SyncConfiguration.ApiTokenMasked)
@@ -94,8 +100,7 @@ public sealed class SyncCoordinator : ObservableObject, IDisposable
     public void Refresh()
     {
         SyncConfiguration = _store.GetSyncConfiguration();
-        StatusMessage = string.IsNullOrWhiteSpace(SyncConfiguration.LastSyncMessage)
-            ? "尚未执行同步。" : SyncConfiguration.LastSyncMessage;
+        StatusMessage = SyncStatusSummary;
     }
 
     public OperationResult SaveConfiguration(string serverBaseUrl, string fallbackServerBaseUrl,
@@ -135,13 +140,18 @@ public sealed class SyncCoordinator : ObservableObject, IDisposable
         try
         {
             IsBusy = true;
-            var result = await _syncService.RunSyncAsync();
+            using var running = CancellationTokenSource.CreateLinkedTokenSource(gateCancellationToken);
+            _runningSync = running;
+            OnPropertyChanged(nameof(CanCancelSync));
+            var result = await _syncService.RunSyncAsync(running.Token);
             _refresh();
             StatusMessage = result.IsSuccess ? SyncConfiguration.LastSyncMessage : result.Message;
             return result;
         }
         finally
         {
+            _runningSync = null;
+            OnPropertyChanged(nameof(CanCancelSync));
             IsBusy = false;
             _gate.Release();
         }
@@ -181,6 +191,9 @@ public sealed class SyncCoordinator : ObservableObject, IDisposable
 
     private void NotifyConfiguration()
     {
+        OnPropertyChanged(nameof(SyncStatusSummary));
+        OnPropertyChanged(nameof(SyncScopeSummary));
+        OnPropertyChanged(nameof(InventoryLastSuccess));
         OnPropertyChanged(nameof(PhotoSyncSummary));
         OnPropertyChanged(nameof(ShellSyncSummary));
         OnPropertyChanged(nameof(OverviewSyncSummary));
@@ -199,6 +212,8 @@ public sealed class SyncCoordinator : ObservableObject, IDisposable
         {
             if (_disposed) return;
             _disposed = true;
+            _runningSync?.Cancel();
+            _syncService.ProgressChanged -= Refresh;
             _scheduledSync?.Cancel();
             _scheduledSync = null;
         }

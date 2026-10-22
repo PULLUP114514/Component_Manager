@@ -52,7 +52,7 @@ public sealed class GitHubReleaseParserTests
     public void ParseRelease_RejectsReleasePageForDifferentTag()
     {
         Assert.Null(GitHubReleaseParser.ParseRelease(ReleaseJson(
-            htmlUrl: "https://github.com/Rafael-ban/Component_Manager/releases/tag/v0.3.10"
+            htmlUrl: "https://github.com/Rafael-Ikaros/Component_Manager/releases/tag/v0.3.10"
         )));
     }
 
@@ -60,7 +60,7 @@ public sealed class GitHubReleaseParserTests
     public void ParseRelease_RejectsForeignPortableAssetButKeepsRelease()
     {
         var release = GitHubReleaseParser.ParseRelease(ReleaseJson(
-            portableUrl: "https://github.com/Rafael-ban/Other/releases/download/v0.3.11/component-vault-windows-portable-x64.zip"
+            portableUrl: "https://github.com/Rafael-Ikaros/Other/releases/download/v0.3.11/component-vault-windows-portable-x64.zip"
         ));
 
         Assert.NotNull(release);
@@ -80,12 +80,12 @@ public sealed class GitHubReleaseParserTests
     public void ValidateAssetUrl_RejectsUserInfoAndQuery()
     {
         Assert.Null(GitHubReleaseParser.ValidateAssetUrl(
-            "https://user@github.com/Rafael-ban/Component_Manager/releases/download/v0.3.11/component-vault-windows-portable-x64.zip",
+            "https://user@github.com/Rafael-Ikaros/Component_Manager/releases/download/v0.3.11/component-vault-windows-portable-x64.zip",
             "v0.3.11",
             GitHubReleaseParser.PortableAssetName
         ));
         Assert.Null(GitHubReleaseParser.ValidateAssetUrl(
-            "https://github.com/Rafael-ban/Component_Manager/releases/download/v0.3.11/component-vault-windows-portable-x64.zip?redirect=evil",
+            "https://github.com/Rafael-Ikaros/Component_Manager/releases/download/v0.3.11/component-vault-windows-portable-x64.zip?redirect=evil",
             "v0.3.11",
             GitHubReleaseParser.PortableAssetName
         ));
@@ -99,8 +99,8 @@ public sealed class GitHubReleaseParserTests
         bool includePortable = true
     )
     {
-        htmlUrl ??= $"https://github.com/Rafael-ban/Component_Manager/releases/tag/{tag}";
-        portableUrl ??= $"https://github.com/Rafael-ban/Component_Manager/releases/download/{tag}/component-vault-windows-portable-x64.zip";
+        htmlUrl ??= $"https://github.com/Rafael-Ikaros/Component_Manager/releases/tag/{tag}";
+        portableUrl ??= $"https://github.com/Rafael-Ikaros/Component_Manager/releases/download/{tag}/component-vault-windows-portable-x64.zip";
         var portable = includePortable
             ? $", {{\"name\":\"component-vault-windows-portable-x64.zip\",\"browser_download_url\":\"{portableUrl}\"}}"
             : string.Empty;

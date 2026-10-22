@@ -5,8 +5,8 @@ namespace ComponentVault.WinUI.Services.Updates;
 public sealed class GitHubReleaseClient
 {
     private const int MaxResponseBytes = 1024 * 1024;
-    private static readonly Uri LatestReleaseApi = new("https://api.github.com/repos/Rafael-ban/Component_Manager/releases/latest");
-    private static readonly Uri ReleasesApi = new("https://api.github.com/repos/Rafael-ban/Component_Manager/releases?per_page=30");
+    private static readonly Uri LatestReleaseApi = new("https://api.github.com/repos/Rafael-Ikaros/Component_Manager/releases/latest");
+    private static readonly Uri ReleasesApi = new("https://api.github.com/repos/Rafael-Ikaros/Component_Manager/releases?per_page=30");
     private static readonly HttpClient Client = CreateClient();
 
     private static HttpClient CreateClient()

@@ -1,0 +1,26 @@
+<resources>
+    <string name="sync_run_label">同步状态</string>
+    <string name="sync_inventory_success_label">库存上次完成时间</string>
+    <string name="sync_bom_success_label">BOM 预设上次完成时间</string>
+    <string name="sync_run_not_configured">数据已保存在本机；尚未配置服务器同步。</string>
+    <string name="sync_run_running">正在同步。</string>
+    <string name="sync_run_interrupted">上次同步已中断。本机数据已保留，请重新同步继续。</string>
+    <string name="sync_run_cancelled">同步已取消。已完成步骤和本机数据已保留，请重新同步重试。</string>
+    <string name="sync_run_complete">上轮库存、BOM 预设和照片同步已完成。</string>
+    <string name="sync_run_partial">部分完成：库存已同步，BOM 预设或照片需要重试。</string>
+    <string name="sync_run_failed">同步失败。本机数据与已完成步骤已保留，请检查连接后重试。</string>
+    <string name="sync_run_pending">本机数据已保留；请同步以处理待同步变更。</string>
+    <string name="sync_pending_counts">本机待同步库存记录 %1$d 条，BOM 预设 %2$d 个。</string>
+    <string name="sync_phase_connection">连接</string>
+    <string name="sync_phase_inventory">库存</string>
+    <string name="sync_phase_bom">BOM 预设</string>
+    <string name="sync_phase_photos">照片</string>
+    <string name="sync_action_cancel">取消同步</string>
+    <string name="sync_pending_bom_unreadable">本机待同步库存记录 %1$d 条；BOM 预设读取失败。本机文件已保留，请检查存储后重试。</string>
+    <string name="sync_photos_current_config_pending">照片待同步；当前服务器配置尚未完成照片同步。</string>
+    <string name="sync_bom_unsupported">服务器暂不支持 BOM 预设同步。</string>
+    <string name="sync_bom_protocol_unsupported">BOM 预设同步响应版本不受支持。</string>
+    <string name="sync_bom_complete">BOM 预设已同步。</string>
+    <string name="sync_bom_failed">BOM 预设未同步：%1$s</string>
+    <string name="sync_run_new_changes_pending">部分完成：仍有本机新改动待下轮同步。本机数据和已完成步骤已保留。</string>
+</resources>

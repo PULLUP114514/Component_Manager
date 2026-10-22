@@ -71,6 +71,7 @@ class InventoryRepository(
 
     init {
         ensureDefaultSettings()
+        syncService.recoverInterruptedRun()
         catalogService.cleanupLookupCache()
         if (!preferences.getBoolean(InventoryPreferenceKeys.INVENTORY_PROTOCOL_MIGRATED, false)) {
             databaseHelper.writableDatabase.use { db ->
@@ -273,16 +274,27 @@ class InventoryRepository(
 
     fun loadSyncConfiguration(): SyncConfiguration {
         ensureDefaultSettings()
+        val generation = preferences.getInt(InventoryPreferenceKeys.SYNC_CONFIG_GENERATION, 0)
+        val currentRun = preferences.getInt(InventoryPreferenceKeys.SYNC_RUN_GENERATION, 0) == generation
+        val pending = syncService.pendingSummary()
         return SyncConfiguration(
+            syncState = if (currentRun) preferences.getString(InventoryPreferenceKeys.SYNC_RUN_STATE, "").orEmpty() else "",
+            syncPhase = if (currentRun) preferences.getString(InventoryPreferenceKeys.SYNC_RUN_PHASE, "").orEmpty() else "",
+            syncSummary = syncService.summary(currentRun, pending),
+            bomLastSyncedAt = if (preferences.getInt(InventoryPreferenceKeys.BOM_SUCCESS_GENERATION, 0) == generation)
+                preferences.getString(InventoryPreferenceKeys.BOM_LAST_SYNCED_AT, "").orEmpty() else "",
+            pendingInventory = pending.first,
+            pendingBomPresets = pending.second,
             deviceId = preferences.getString(InventoryPreferenceKeys.DEVICE_ID, "") ?: "",
             serverBaseUrl = preferences.getString(InventoryPreferenceKeys.SERVER_BASE_URL, "") ?: "",
             externalServerBaseUrl = preferences.getString(InventoryPreferenceKeys.EXTERNAL_SERVER_BASE_URL, "") ?: "",
             apiToken = preferences.getString(InventoryPreferenceKeys.API_TOKEN, "") ?: "",
             autoSyncEnabled = preferences.getBoolean(InventoryPreferenceKeys.AUTO_SYNC_ENABLED, false),
-            lastSyncedAt = preferences.getString(InventoryPreferenceKeys.LAST_SYNCED_AT, text(R.string.sync_never))
-                ?: text(R.string.sync_never),
-            lastSyncMessage = preferences.getString(InventoryPreferenceKeys.LAST_SYNC_MESSAGE, text(R.string.sync_no_sync_yet))
-                ?: text(R.string.sync_no_sync_yet),
+            lastSyncedAt = if (preferences.getInt(InventoryPreferenceKeys.INVENTORY_SUCCESS_GENERATION, 0) == generation)
+                preferences.getString(InventoryPreferenceKeys.LAST_SYNCED_AT, text(R.string.sync_never)).orEmpty()
+                else text(R.string.sync_never),
+            lastSyncMessage = if (currentRun) preferences.getString(InventoryPreferenceKeys.LAST_SYNC_MESSAGE, text(R.string.sync_no_sync_yet)).orEmpty()
+                else text(R.string.sync_no_sync_yet),
         )
     }
 
@@ -323,7 +335,13 @@ class InventoryRepository(
         ensureDefaultSettings()
         val normalizedServerUrl = serverBaseUrl.trim().trimEnd('/')
         synchronized(syncConfigurationLock) {
-            preferences.edit()
+            val changed = normalizedServerUrl != preferences.getString(InventoryPreferenceKeys.SERVER_BASE_URL, "") ||
+                apiToken.trim() != preferences.getString(InventoryPreferenceKeys.API_TOKEN, "") ||
+                externalServerBaseUrl.trim().trimEnd('/') != preferences.getString(InventoryPreferenceKeys.EXTERNAL_SERVER_BASE_URL, "")
+            preferences.edit().apply {
+                if (changed) putInt(InventoryPreferenceKeys.SYNC_CONFIG_GENERATION,
+                    preferences.getInt(InventoryPreferenceKeys.SYNC_CONFIG_GENERATION, 0) + 1)
+            }
                 .putString(InventoryPreferenceKeys.SERVER_BASE_URL, normalizedServerUrl)
                 .putString(InventoryPreferenceKeys.EXTERNAL_SERVER_BASE_URL, externalServerBaseUrl.trim().trimEnd('/'))
                 .putString(InventoryPreferenceKeys.API_TOKEN, apiToken.trim())
@@ -502,6 +520,16 @@ class InventoryRepository(
         externalServerBaseUrl = externalServerBaseUrl.trim().trimEnd('/'),
         apiToken = apiToken.trim(),
     ))
+
+    fun observeSyncStatus(onChange: () -> Unit): () -> Unit {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == InventoryPreferenceKeys.SYNC_RUN_STATE || key == InventoryPreferenceKeys.SYNC_RUN_PHASE) onChange()
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        return { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    fun cancelSyncRequests() = syncService.cancelActiveRequests()
 
     suspend fun runSync(): OperationResult = syncService.runSync(::loadSyncConfiguration)
 

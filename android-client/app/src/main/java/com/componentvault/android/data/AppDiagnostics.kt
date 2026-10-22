@@ -5,7 +5,7 @@ import java.time.Instant
 internal object AppDiagnostics {
     private const val MaxEntries = 100
     private const val MaxChars = 16 * 1024
-    private val allowed = setOf("scanner_session", "scanner_decode", "scanner_choice", "scanner_failure", "lookup_domestic", "lookup_international")
+    private val allowed = setOf("scanner_session", "scanner_decode", "scanner_choice", "scanner_failure", "lookup_domestic", "lookup_international", "inventory_publish", "inventory_render")
     private val entries = ArrayDeque<String>()
 
     @Synchronized

@@ -89,6 +89,23 @@ public sealed class InventoryStore
     public BomConfirmResult ConfirmBomConsumption(BomConfirmRequest request) => _bomImport.ConfirmBomConsumption(request);
     public OperationResult ImportComponentHub(ComponentHubImportRequest request) => _bomImport.ImportComponentHub(request);
 
+    public (string ServerId, string AccountId) GetBoundSyncIdentity()
+    {
+        using var connection = _database.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT bound_server_id, bound_account_id FROM sync_settings WHERE id = 1";
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? (reader.GetString(0), reader.GetString(1)) : ("", "");
+    }
+
+    public int GetPendingSyncCount()
+    {
+        using var connection = _database.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sync_queue";
+        return Convert.ToInt32(command.ExecuteScalar());
+    }
+
     public SyncEnvelope CreateSyncEnvelope() => _syncEnvelope.CreateSyncEnvelope();
     public string? ValidateAndBindSyncIdentity(SyncAccountIdentity identity, SyncConfiguration settings) =>
         _syncSettings.ValidateAndBindSyncIdentity(identity, settings);

@@ -136,10 +136,8 @@ public sealed class SyncApiClientTests
             throw new InvalidOperationException("unreachable");
         });
 
-        var result = await CreateClient(handler).RunSyncAsync(
-            Settings(), EmptyPush(), cursor: null, cancellation.Token);
-
-        Assert.False(result.IsSuccess);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => CreateClient(handler).RunSyncAsync(
+            Settings(), EmptyPush(), cursor: null, cancellation.Token));
         Assert.Equal(["POST https://primary.example/auth/ping"], handler.Requests);
     }
 
@@ -285,13 +283,14 @@ public sealed class SyncApiClientTests
             }
             return SuccessFor(request);
         });
-        var result = await CreateClient(handler).RunSyncAsync(Settings(), EmptyPush(), null,
-            validateAndBindIdentity: identity => identity.AccountId == "account-1" ? null : "identity mismatch",
-            presetRequest: new ComponentVault.WinUI.Services.Bom.BomPresetSyncRequest("test-device", []));
+        var client = CreateClient(handler);
+        var result = await client.RunSyncAsync(Settings(), EmptyPush(), null,
+            validateAndBindIdentity: identity => identity.AccountId == "account-1" ? null : "identity mismatch");
         Assert.True(result.IsSuccess);
         Assert.NotNull(result.PullResponse);
-        if (capability && endpoint) Assert.NotNull(result.BomPresets);
-        else { Assert.Null(result.BomPresets); Assert.Contains("本地预设已保留", result.PresetSyncMessage); }
+        var presets = new ComponentVault.WinUI.Services.Bom.BomPresetSyncRequest("test-device", []);
+        if (capability && endpoint) Assert.Empty(await client.RunPresetSyncAsync(Settings(), result, presets));
+        else await Assert.ThrowsAsync<InvalidOperationException>(() => client.RunPresetSyncAsync(Settings(), result, presets));
         Assert.Equal(capability ? 5 : 4, handler.Requests.Count);
     }
     private static SyncApiClient CreateClient(HttpMessageHandler handler) =>

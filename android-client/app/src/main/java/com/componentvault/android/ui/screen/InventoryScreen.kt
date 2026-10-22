@@ -325,6 +325,10 @@ private fun InventoryListPane(
     onQuickMovement: QuickMovementAction?,
 ) {
     val strings = vaultStrings()
+    val diagnostic = inventoryDiagnosticFields(uiState)
+    LaunchedEffect(diagnostic) {
+        com.componentvault.android.data.AppDiagnostics.record("inventory_render", *diagnostic.toTypedArray())
+    }
     var selecting by androidx.compose.runtime.remember { mutableStateOf(false) }
     var selectedIds by androidx.compose.runtime.remember { mutableStateOf(emptySet<String>()) }
     var transferVisible by androidx.compose.runtime.remember { mutableStateOf(false) }

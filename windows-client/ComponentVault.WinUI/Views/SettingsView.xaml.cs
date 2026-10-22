@@ -58,10 +58,11 @@ public sealed partial class SettingsView : Page
         ToggleApiTokenButton.Content = "显示令牌";
         ApiTokenCopyStatusText.Text = string.Empty;
         DeviceIdTextBox.Text = sync.DeviceId;
-        LastSyncedTextBox.Text = sync.LastSyncedAt;
-        LastResultTextBox.Text = sync.LastSyncMessage;
+
         AutoSyncToggle.IsOn = sync.AutoSyncEnabled;
     }
+
+    private void OnCancelSyncClicked(object sender, RoutedEventArgs e) => RuntimeViewModel?.CancelSync();
 
     private async void OnClearPhotoCacheClicked(object sender, RoutedEventArgs e)
     {
@@ -132,9 +133,8 @@ public sealed partial class SettingsView : Page
             return;
         }
         var result = await viewModel.RunSyncAsync();
-        LoadValuesFromCurrentContext();
         await ShowMessageAsync(
-            result.IsSuccess
+            result.IsPartial ? "同步部分完成" : result.IsSuccess
                 ? AppStrings.Get("Settings_Dialog_SyncSuccessTitle")
                 : AppStrings.Get("Settings_Dialog_SyncFailureTitle"),
             result.IsSuccess ? viewModel.SyncConfiguration.LastSyncMessage : result.Message
@@ -392,7 +392,7 @@ public sealed partial class SettingsView : Page
     private async void OnOpenReleasesClicked(object sender, RoutedEventArgs e)
     {
         var uri = _latestRelease?.ReleasePage
-            ?? new Uri("https://github.com/Rafael-ban/Component_Manager/releases");
+            ?? new Uri("https://github.com/Rafael-Ikaros/Component_Manager/releases");
         var trusted = _latestRelease is null
             ? GitHubReleaseParser.ValidateReleasePage(uri.AbsoluteUri)
             : GitHubReleaseParser.ValidateReleasePage(uri.AbsoluteUri, _latestRelease.Tag);

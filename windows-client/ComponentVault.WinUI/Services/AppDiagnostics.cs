@@ -27,7 +27,7 @@ public sealed record FeedbackReport(string FullText,Uri GitHubUri,bool RequiresC
 public static class FeedbackReportBuilder
 {
     public const int MaxEncodedUrlBytes=7000;
-    private const string NewIssueUrl="https://github.com/Rafael-ban/Component_Manager/issues/new";
+    private const string NewIssueUrl="https://github.com/Rafael-Ikaros/Component_Manager/issues/new";
     public static FeedbackReport Build(FeedbackInput input)
     {
         var title=string.IsNullOrWhiteSpace(input.Title)?"Windows 应用反馈":input.Title.Trim();

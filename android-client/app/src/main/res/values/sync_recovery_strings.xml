@@ -1,0 +1,26 @@
+<resources>
+    <string name="sync_run_label">Sync status</string>
+    <string name="sync_inventory_success_label">Last inventory sync completed</string>
+    <string name="sync_bom_success_label">Last BOM preset sync completed</string>
+    <string name="sync_run_not_configured">Saved locally; configure server sync when ready.</string>
+    <string name="sync_run_running">Sync in progress.</string>
+    <string name="sync_run_interrupted">Previous sync was interrupted. Local data is retained; sync again to resume.</string>
+    <string name="sync_run_cancelled">Sync cancelled. Completed steps and local data are retained; sync again to retry.</string>
+    <string name="sync_run_complete">Previous sync completed for inventory, BOM presets and photos.</string>
+    <string name="sync_run_partial">Partially complete: inventory is synced; BOM presets or photos need retry.</string>
+    <string name="sync_run_failed">Sync failed. Local data and completed steps are retained; check the connection and retry.</string>
+    <string name="sync_run_pending">Local data is retained; sync to reconcile remaining changes.</string>
+    <string name="sync_pending_counts">Pending local inventory records: %1$d; BOM presets: %2$d.</string>
+    <string name="sync_phase_connection">Connection</string>
+    <string name="sync_phase_inventory">Inventory</string>
+    <string name="sync_phase_bom">BOM presets</string>
+    <string name="sync_phase_photos">Photos</string>
+    <string name="sync_action_cancel">Cancel sync</string>
+    <string name="sync_pending_bom_unreadable">Pending local inventory records: %1$d; BOM presets could not be read. Local files are retained; check storage and retry.</string>
+    <string name="sync_photos_current_config_pending">Photos pending; no photo sync completed for the current server configuration.</string>
+    <string name="sync_bom_unsupported">Server does not support BOM preset sync yet.</string>
+    <string name="sync_bom_protocol_unsupported">Unsupported BOM preset sync response version.</string>
+    <string name="sync_bom_complete">BOM presets synced.</string>
+    <string name="sync_bom_failed">BOM presets not synced: %1$s</string>
+    <string name="sync_run_new_changes_pending">Partially complete: new local changes remain pending for the next sync. Local data and completed steps are retained.</string>
+</resources>

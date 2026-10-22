@@ -34,7 +34,7 @@
   </form>
   <section id="adminLinkCard" class="card" tabindex="-1" hidden><h2>进入 Web 管理台</h2><p>管理台需要使用刚保存的 API Token 重新登录。请先在上方复制并保存令牌，再打开管理台。</p><div class="row"><a id="adminLink" class="primary" href="#">进入管理台</a></div></section>
   <section id="filesCard" class="card" hidden><h2>文件位置与运行日志</h2><p>群晖使用目录映射后，可在 File Station 的对应目录找到这些文件。使用 Docker named volume 时，文件由 Docker 管理。</p><dl><dt>配置文件</dt><dd><code id="configPath"></code></dd><dt>运行日志</dt><dd><code id="logPath"></code></dd></dl><p id="overrides" class="hint"></p><p class="hint">环境变量的非空值优先于配置文件。数据库、MQTT 配置和元件资料继续保留在原数据目录中。</p><button id="loadLogs" type="button">查看最近日志</button><pre id="logs" tabindex="0" hidden></pre></section>
-  <footer>Component Vault · Rafael-Ikaros · <a href="https://github.com/Rafael-ban/Component_Manager" target="_blank" rel="noopener noreferrer">项目与部署教程</a></footer>
+  <footer>Component Vault · Rafael-Ikaros · <a href="https://github.com/Rafael-Ikaros/Component_Manager" target="_blank" rel="noopener noreferrer">项目与部署教程</a></footer>
 </main>
 <script>
   const el = id => document.getElementById(id);

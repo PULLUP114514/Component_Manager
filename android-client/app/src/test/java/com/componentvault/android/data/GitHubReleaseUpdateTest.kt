@@ -67,8 +67,8 @@ class GitHubReleaseUpdateTest {
     @Test
     fun foreignAndUnsafeAssetUrlsAreRejected() {
         listOf(
-            "https://example.com/Rafael-ban/Component_Manager/releases/download/v0.3.10/component-vault-android-release.apk",
-            "https://attacker@github.com/Rafael-ban/Component_Manager/releases/download/v0.3.10/component-vault-android-release.apk",
+            "https://example.com/Rafael-Ikaros/Component_Manager/releases/download/v0.3.10/component-vault-android-release.apk",
+            "https://attacker@github.com/Rafael-Ikaros/Component_Manager/releases/download/v0.3.10/component-vault-android-release.apk",
             "javascript:alert(1)",
         ).forEach { url ->
             assertIs<ReleaseCheckResult.InvalidReleaseLinks>(
@@ -77,7 +77,7 @@ class GitHubReleaseUpdateTest {
         }
         assertIs<ReleaseCheckResult.InvalidReleaseLinks>(
             GitHubReleaseParser.parse(
-                releaseJson(pageUrl = "https://example.com/Rafael-ban/Component_Manager/releases/tag/v0.3.10"),
+                releaseJson(pageUrl = "https://example.com/Rafael-Ikaros/Component_Manager/releases/tag/v0.3.10"),
             ),
         )
     }
@@ -94,7 +94,7 @@ class GitHubReleaseUpdateTest {
         assetUrl: String? = null,
         draft: Boolean = false,
         prerelease: Boolean = false,
-        pageUrl: String = "https://github.com/Rafael-ban/Component_Manager/releases/tag/$tag",
+        pageUrl: String = "https://github.com/Rafael-Ikaros/Component_Manager/releases/tag/$tag",
     ): String = JSONObject().apply {
         put("tag_name", tag)
         put("draft", draft)
@@ -104,7 +104,7 @@ class GitHubReleaseUpdateTest {
         put("html_url", pageUrl)
         put("assets", JSONArray().put(JSONObject().apply {
             put("name", assetName)
-            put("browser_download_url", assetUrl ?: "https://github.com/Rafael-ban/Component_Manager/releases/download/$tag/component-vault-android-release.apk")
+            put("browser_download_url", assetUrl ?: "https://github.com/Rafael-Ikaros/Component_Manager/releases/download/$tag/component-vault-android-release.apk")
         }))
     }.toString()
 }

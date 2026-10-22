@@ -12,5 +12,13 @@ internal object InventoryPreferenceKeys {
     const val BOUND_SERVER_ID = "bound_server_id"
     const val BOUND_ACCOUNT_ID = "bound_account_id"
     const val INVENTORY_PROTOCOL_MIGRATED = "inventory_protocol_migrated_v1"
+    const val SYNC_RUN_STATE = "sync_run_state"
+    const val SYNC_RUN_PHASE = "sync_run_phase"
+    const val SYNC_CONFIG_GENERATION = "sync_config_generation"
+    const val SYNC_RUN_GENERATION = "sync_run_generation"
+    const val INVENTORY_SUCCESS_GENERATION = "inventory_success_generation"
+    const val BOM_SUCCESS_GENERATION = "bom_success_generation"
+    const val BOM_LAST_SYNCED_AT = "bom_last_synced_at"
+    const val BOM_ACK_VERSIONS = "bom_ack_versions"
     const val APP_LANGUAGE = "app_language"
 }

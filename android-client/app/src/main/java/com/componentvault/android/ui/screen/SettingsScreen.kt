@@ -346,6 +346,8 @@ internal fun SettingsContent(
                     showToken = showToken,
                     onToggleToken = { showToken = !showToken },
                     isBusy = isBusy,
+                    syncRunning = syncConfiguration.syncState == "Running",
+                    syncSummary = syncConfiguration.syncSummary,
                     errorMessage = errorMessage,
                     hasUnsavedConnection = hasUnsavedConnection,
                     onSave = { saveDraft(true) },
@@ -432,6 +434,8 @@ internal fun SettingsContent(
                 showToken = showToken,
                 onToggleToken = { showToken = !showToken },
                 isBusy = isBusy,
+                syncRunning = syncConfiguration.syncState == "Running",
+                    syncSummary = syncConfiguration.syncSummary,
                 errorMessage = errorMessage,
                 hasUnsavedConnection = hasUnsavedConnection,
                 onSave = { saveDraft(true) },
@@ -555,6 +559,9 @@ private fun SettingsSummaryPane(
         title = strings.settings.summaryTitle,
         supporting = strings.settings.summarySubtitle,
     ) {
+        ValueBlock(label = stringResource(R.string.sync_run_label), value = syncConfiguration.syncSummary)
+        ValueBlock(label = stringResource(R.string.sync_bom_success_label),
+            value = syncConfiguration.bomLastSyncedAt.ifBlank { stringResource(R.string.sync_never) })
         PhotoSyncSettings(syncConfiguration)
         ValueBlock(
             label = strings.settings.endpoint,
@@ -565,7 +572,7 @@ private fun SettingsSummaryPane(
             value = syncConfiguration.deviceId,
         )
         ValueBlock(
-            label = strings.settings.lastSynced,
+            label = stringResource(R.string.sync_inventory_success_label),
             value = syncConfiguration.lastSyncedAt,
         )
         ValueBlock(
@@ -827,9 +834,9 @@ private fun releasePublishedDate(release: com.componentvault.android.data.GitHub
     return if (date.isBlank()) stringResource(R.string.settings_update_date_unknown) else date
 }
 
-private const val PROJECT_URL = "https://github.com/Rafael-ban/Component_Manager"
-private const val OPEN_SOURCE_URL = "https://github.com/Rafael-ban/Component_Manager/blob/master/LICENSE.txt"
-private const val RELEASES_URL = "https://github.com/Rafael-ban/Component_Manager/releases"
+private const val PROJECT_URL = "https://github.com/Rafael-Ikaros/Component_Manager"
+private const val OPEN_SOURCE_URL = "https://github.com/Rafael-Ikaros/Component_Manager/blob/master/LICENSE.txt"
+private const val RELEASES_URL = "https://github.com/Rafael-Ikaros/Component_Manager/releases"
 
 private fun androidx.compose.foundation.lazy.LazyListScope.settingsSectionDetailItems(
     section: SettingsSection,
@@ -869,6 +876,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsSectionDetail
     showToken: Boolean,
     onToggleToken: () -> Unit,
     isBusy: Boolean,
+    syncRunning: Boolean,
+    syncSummary: String,
     errorMessage: String?,
     onSave: () -> Boolean,
     hasUnsavedConnection: Boolean,
@@ -879,6 +888,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsSectionDetail
     when (section) {
         SettingsSection.Sync -> {
             item {
+                ValueBlock(label = stringResource(R.string.sync_run_label), value = syncSummary)
                 SectionPane(
                     title = strings.settings.connectionTitle.takeIf { showSectionHeading },
                     supporting = strings.settings.connectionSubtitle,
@@ -1009,10 +1019,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.settingsSectionDetail
                     }
                     OutlinedButton(
                         onClick = onSyncNow,
-                        enabled = !isBusy && !hasUnsavedConnection,
+                        enabled = syncRunning || (!isBusy && !hasUnsavedConnection),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(strings.common.actionSyncNow)
+                        Text(if (syncRunning) stringResource(R.string.sync_action_cancel) else strings.common.actionSyncNow)
                     }
                 }
             }

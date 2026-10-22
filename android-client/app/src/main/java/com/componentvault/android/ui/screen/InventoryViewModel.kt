@@ -41,6 +41,7 @@ import com.componentvault.android.model.StorageLocationSaveIntent
 import com.componentvault.android.model.ComponentAllocationRecord
 import com.componentvault.android.model.SyncConfiguration
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.net.Uri
 
 internal data class InventoryBackupUiState(
@@ -58,6 +59,7 @@ class InventoryViewModel(
     private val bomImportOperations = BomImportOperations(repository)
     var startupFailure by mutableStateOf<String?>(null)
         private set
+    private var lastInventoryDiagnostic: List<Pair<String, Any?>>? = null
     private var initialLoadComplete = false
     private var movementBatchCommitInProgress = false
     private var allComponentsCache: List<ComponentRecord> = emptyList()
@@ -94,6 +96,11 @@ class InventoryViewModel(
         ),
     )
         private set
+
+    private val stopObservingSync = repository.observeSyncStatus {
+        uiState = uiState.copy(syncConfiguration = repository.loadSyncConfiguration())
+    }
+    private var activeSyncJob: kotlinx.coroutines.Job? = null
 
     init {
         savedStateHandle.get<String>(MOVEMENT_BATCH_DRAFT_KEY)?.let { saved ->
@@ -726,7 +733,20 @@ class InventoryViewModel(
         }
     }
 
+    override fun onCleared() {
+        stopObservingSync()
+        activeSyncJob?.cancel()
+        repository.cancelSyncRequests()
+        super.onCleared()
+    }
+
     fun runSync() {
+        if (activeSyncJob?.isActive == true) {
+            activeSyncJob?.cancel()
+            repository.cancelSyncRequests()
+            return
+        }
+        if (uiState.isBusy) return
         viewModelScope.launch {
             uiState = uiState.copy(isBusy = true)
             runSyncInternal()
@@ -742,8 +762,21 @@ class InventoryViewModel(
     }
 
     private suspend fun runSyncInternal() {
-        val result = repository.runSync()
-        reloadState(statusMessage = result.message.takeUnless { result.isSuccess })
+        if (activeSyncJob != null) return
+        activeSyncJob = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        var message: String? = null
+        try {
+            val result = repository.runSync()
+            message = result.message.takeUnless { result.isSuccess }
+        } finally {
+            withContext(kotlinx.coroutines.NonCancellable) {
+                try { reloadState(message) }
+                finally {
+                    activeSyncJob = null
+                    uiState = uiState.copy(isBusy = false)
+                }
+            }
+        }
     }
 
     private suspend fun reloadState(
@@ -775,6 +808,14 @@ class InventoryViewModel(
             statusMessage = statusMessage ?: syncConfiguration.lastSyncMessage,
             isBusy = false,
         )
+        val diagnostic = inventoryDiagnosticFields(uiState.inventory) + listOf(
+            "available" to uiState.availableComponents.size,
+            "cache" to allComponentsCache.size,
+        )
+        if (diagnostic != lastInventoryDiagnostic) {
+            lastInventoryDiagnostic = diagnostic
+            com.componentvault.android.data.AppDiagnostics.record("inventory_publish", *diagnostic.toTypedArray())
+        }
     }
 
     private fun maybeAutoSyncOnLaunch() {

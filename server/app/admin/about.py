@@ -14,8 +14,8 @@ from ..auth import require_token
 from ..build_info import BUILD_REVISION, BUILD_VERSION
 
 router = APIRouter(prefix="/admin-api/about", dependencies=[Depends(require_token)])
-REPOSITORY = "https://github.com/Rafael-ban/Component_Manager"
-RELEASE_API = "https://api.github.com/repos/Rafael-ban/Component_Manager/releases/latest"
+REPOSITORY = "https://github.com/Rafael-Ikaros/Component_Manager"
+RELEASE_API = "https://api.github.com/repos/Rafael-Ikaros/Component_Manager/releases/latest"
 
 
 def version_key(value: str) -> tuple[int, int, int, int, int] | None:

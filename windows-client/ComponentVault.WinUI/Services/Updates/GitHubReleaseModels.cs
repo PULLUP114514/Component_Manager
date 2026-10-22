@@ -38,7 +38,7 @@ public sealed record UpdateCheckResult(
 
 public static class GitHubReleaseParser
 {
-    public const string Owner = "Rafael-ban";
+    public const string Owner = "Rafael-Ikaros";
     public const string Repository = "Component_Manager";
     public const string PortableAssetName = "component-vault-windows-portable-x64.zip";
 

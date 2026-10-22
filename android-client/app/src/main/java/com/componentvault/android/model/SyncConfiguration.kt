@@ -8,6 +8,12 @@ data class SyncConfiguration(
     val lastSyncedAt: String,
     val lastSyncMessage: String,
     val externalServerBaseUrl: String = "",
+    val syncState: String = "",
+    val syncPhase: String = "",
+    val syncSummary: String = "",
+    val bomLastSyncedAt: String = "",
+    val pendingInventory: Int = 0,
+    val pendingBomPresets: Int = 0,
 ) {
     val apiTokenMasked: String
         get() {

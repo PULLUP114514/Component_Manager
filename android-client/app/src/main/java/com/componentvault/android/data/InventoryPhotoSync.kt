@@ -1,6 +1,7 @@
 package com.componentvault.android.data
 
 import android.content.Context
+import com.componentvault.android.R
 import com.componentvault.android.model.SyncConfiguration
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -10,6 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Photo bytes are independent of the inventory cursor. Every run derives remaining work. */
 internal class InventoryPhotoSync(private val context: Context) {
+    @Volatile private var activeConnection: HttpURLConnection? = null
+    fun cancelActiveRequest() { activeConnection?.disconnect() }
     private val state = context.getSharedPreferences("photo-sync", Context.MODE_PRIVATE)
     private val store = InventoryImageStore(context)
 
@@ -22,14 +25,32 @@ internal class InventoryPhotoSync(private val context: Context) {
         } finally { helper.close() }
     }
 
+    private fun hasCurrentScope(): Boolean {
+        val configuration = context.getSharedPreferences("component_vault_sync", Context.MODE_PRIVATE)
+        val serverId = configuration.getString(InventoryPreferenceKeys.BOUND_SERVER_ID, "").orEmpty()
+        val accountId = configuration.getString(InventoryPreferenceKeys.BOUND_ACCOUNT_ID, "").orEmpty()
+        return serverId.isNotBlank() && accountId.isNotBlank() &&
+            state.getString("binding", "") == "$serverId/$accountId" &&
+            state.getInt("configuration_generation", 0) == configuration.getInt(InventoryPreferenceKeys.SYNC_CONFIG_GENERATION, 0)
+    }
+
+    /** Recheck live references: a photo added after the outbound snapshot still needs sync. */
+    fun isCurrentSyncComplete(): Boolean {
+        if (!hasCurrentScope() || state.getString("state", "") != "complete") return false
+        val acknowledged = state.getStringSet("ack", emptySet()).orEmpty()
+        return keys().all { it in acknowledged && store.hasFile(it) }
+    }
+
     fun summary(configured: Boolean = true): String {
         val keys = keys()
         val available = keys.filterTo(mutableSetOf()) { store.hasFile(it) }
         val local = available.size
-        val acknowledged = state.getStringSet("ack", emptySet()).orEmpty()
+        val currentScope = hasCurrentScope()
+        val acknowledged = if (currentScope) state.getStringSet("ack", emptySet()).orEmpty() else emptySet()
         val pending = keys.count { it !in available || it !in acknowledged }
         val status = when {
             !configured -> "照片已在本机保存；尚未配置服务器同步"
+            !currentScope -> context.getString(R.string.sync_photos_current_config_pending)
             running.get() -> "照片传输中"
             state.getString("state", "") == "running" -> "上次照片传输已中断，请同步重试"
             state.getString("state", "") == "unsupported" -> "服务器暂不支持照片同步"
@@ -38,9 +59,10 @@ internal class InventoryPhotoSync(private val context: Context) {
             keys.isEmpty() -> "尚无元件照片"
             else -> "照片同步完成"
         }
-        return "$status；本机可用 $local/${keys.size}，待处理 $pending；上次上传 ${state.getInt("uploaded", 0)}、下载 ${state.getInt("downloaded", 0)}、失败 ${state.getInt("errors", 0)}。" +
-            state.getString("last_success", "")?.takeIf { it.isNotBlank() }?.let { " 上次成功：$it" }.orEmpty() +
-            state.getString("issue", "")?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
+        return "$status；本机可用 $local/${keys.size}，待处理 $pending" + (if (currentScope)
+            "；上次上传 ${state.getInt("uploaded", 0)}、下载 ${state.getInt("downloaded", 0)}、失败 ${state.getInt("errors", 0)}。" else "。") +
+            state.getString("last_success", "")?.takeIf { currentScope && it.isNotBlank() }?.let { " 上次成功：$it" }.orEmpty() +
+            state.getString("issue", "")?.takeIf { currentScope && it.isNotBlank() }?.let { " $it" }.orEmpty()
     }
 
     fun clearDownloads() {
@@ -54,6 +76,8 @@ internal class InventoryPhotoSync(private val context: Context) {
         checkBinding()
         val binding = "$serverId/$accountId"
         if (state.getString("binding", "") != binding) state.edit().clear().putString("binding", binding).commit()
+        state.edit().putInt("configuration_generation", context.getSharedPreferences("component_vault_sync", Context.MODE_PRIVATE)
+            .getInt(InventoryPreferenceKeys.SYNC_CONFIG_GENERATION, 0)).commit()
         val keys = keys()
         store.pruneDownloads(keys)
         if (!supported) {
@@ -84,13 +108,13 @@ internal class InventoryPhotoSync(private val context: Context) {
                     when {
                         available[key] == true && bytes != null -> ack.add(key)
                         available[key] == true -> {
-                            val incoming = transfer(settings, accountId, key, null)
+                            val incoming = transfer(settings, accountId, key, null, checkBinding)
                             checkBinding()
                             store.persistDownloaded(key, incoming)
                             downloaded++; ack.add(key)
                         }
                         available.containsKey(key) && bytes != null -> {
-                            transfer(settings, accountId, key, bytes)
+                            transfer(settings, accountId, key, bytes, checkBinding)
                             checkBinding()
                             uploaded++; ack.add(key)
                         }
@@ -109,20 +133,27 @@ internal class InventoryPhotoSync(private val context: Context) {
             }.commit()
             (errors == 0) to " 照片上传 $uploaded、下载 $downloaded、失败 $errors。"
         } catch (error: Exception) {
-            if (error is kotlinx.coroutines.CancellationException) throw error
+            if (error is kotlinx.coroutines.CancellationException) {
+                state.edit().putString("state", "cancelled").commit()
+                throw error
+            }
+            checkBinding()
             errors++; save(error.message ?: "照片同步失败，请重试。")
             state.edit().putString("state", "partial").commit()
             false to " 照片未全部同步：${error.message ?: "请重试"}"
         } finally { running.set(false) }
     }
 
-    private fun transfer(settings: SyncConfiguration, accountId: String, key: String, bytes: ByteArray?): ByteArray {
+    private fun transfer(settings: SyncConfiguration, accountId: String, key: String, bytes: ByteArray?, checkBinding: () -> Unit): ByteArray {
+        checkBinding()
         val connection = URL("${settings.serverBaseUrl.trimEnd('/')}/sync/photos/$key").openConnection() as HttpURLConnection
+        activeConnection = connection
         connection.connectTimeout = 30_000; connection.readTimeout = 60_000
         connection.requestMethod = if (bytes == null) "GET" else "PUT"
         connection.setRequestProperty("Authorization", "Bearer ${settings.apiToken}")
         connection.setRequestProperty("X-Component-Vault-Account-Id", accountId)
         return try {
+            checkBinding()
             if (bytes != null) {
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", if (key.endsWith(".png")) "image/png" else "image/jpeg")
@@ -134,13 +165,14 @@ internal class InventoryPhotoSync(private val context: Context) {
                 val output = java.io.ByteArrayOutputStream()
                 val buffer = ByteArray(8192)
                 while (true) {
+                    checkBinding()
                     val count = input.read(buffer); if (count < 0) break
                     check(output.size() + count <= 5 * 1024 * 1024) { "照片超过 5 MiB。" }
                     output.write(buffer, 0, count)
                 }
                 output.toByteArray()
             }
-        } finally { connection.disconnect() }
+        } finally { activeConnection = null; connection.disconnect() }
     }
     companion object { val running = AtomicBoolean(false) }
 }
