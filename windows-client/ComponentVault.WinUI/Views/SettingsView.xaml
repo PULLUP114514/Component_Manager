@@ -1,4 +1,4 @@
-﻿<Page
+<Page
     x:Class="ComponentVault.WinUI.Views.SettingsView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -199,6 +199,8 @@
                                     Text="{Binding SyncActionHint}"
                                     TextWrapping="Wrap" />
                             </Grid>
+                            <TextBlock Text="{Binding PhotoSyncSummary}" TextWrapping="Wrap" />
+                            <Button Content="清理照片下载缓存" Click="OnClearPhotoCacheClicked" IsEnabled="{Binding CanRunSyncActions}" />
                         </StackPanel>
                     </Border>
                 </StackPanel>

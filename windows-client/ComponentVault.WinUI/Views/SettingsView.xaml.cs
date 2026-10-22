@@ -63,6 +63,12 @@ public sealed partial class SettingsView : Page
         AutoSyncToggle.IsOn = sync.AutoSyncEnabled;
     }
 
+    private async void OnClearPhotoCacheClicked(object sender, RoutedEventArgs e)
+    {
+        if (RuntimeViewModel is not { } viewModel || viewModel.IsBusy) return;
+        await ShowMessageAsync("照片缓存", viewModel.ClearPhotoCache());
+    }
+
     private async void OnSaveSettingsClicked(object sender, RoutedEventArgs e)
     {
         var viewModel = RuntimeViewModel;

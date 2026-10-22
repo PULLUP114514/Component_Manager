@@ -8,6 +8,8 @@ import androidx.annotation.StringRes
 import com.componentvault.android.R
 import com.componentvault.android.model.OperationResult
 import com.componentvault.android.model.SyncConfiguration
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -147,14 +149,25 @@ internal class InventorySyncService(
                 val pulledComponents = pullResponse.optJSONArray("components")?.length() ?: 0
                 val pulledMovements = pullResponse.optJSONArray("stock_movements")?.length() ?: 0
                 val serverTime = pullResponse.optString("server_time")
-                val presetMessage = syncBomPresets(endpoint, settings, accountId)
-                val successMessage = text(
+                val presetResult = syncBomPresets(endpoint, settings, accountId)
+                val photoContext = currentCoroutineContext()
+                val photoResult = InventoryPhotoSync(appContext).sync(endpoint.configuration, serverId, accountId,
+                    endpoint.probe.optInt("photo_protocol") == 1,
+                    checkBinding = { photoContext.ensureActive(); synchronized(syncConfigurationLock) {
+                        checkSyncConfigurationUnchanged(settings)
+                        check(preferences.getString(InventoryPreferenceKeys.BOUND_SERVER_ID, "") == serverId &&
+                            preferences.getString(InventoryPreferenceKeys.BOUND_ACCOUNT_ID, "") == accountId) { text(R.string.sync_account_mismatch) }
+                    } },
+                    manifest = { callJson(endpoint.configuration, "GET", "/sync/photos", null, accountId = accountId) })
+                val inventoryMessage = text(
                     R.string.sync_complete_summary,
                     acceptedComponents,
                     acceptedMovements,
                     pulledComponents,
                     pulledMovements,
-                ) + (if (endpoint.usesExternalAddress) " " + text(R.string.sync_via_external) else "") + presetMessage
+                ) + (if (endpoint.usesExternalAddress) " " + text(R.string.sync_via_external) else "") + presetResult.second + photoResult.second
+                val allComplete = presetResult.first && photoResult.first
+                val successMessage = if (allComplete) inventoryMessage else "部分完成：库存已完成。$inventoryMessage （上次同步时间仅代表库存同步。）"
 
                 synchronized(syncConfigurationLock) {
                     checkSyncConfigurationUnchanged(settings)
@@ -166,10 +179,11 @@ internal class InventorySyncService(
                 }
 
                 OperationResult(
-                    isSuccess = true,
+                    isSuccess = allComplete,
                     message = successMessage,
                 )
             } catch (exception: Exception) {
+                if (exception is kotlinx.coroutines.CancellationException) throw exception
                 updateSyncStatus(
                     lastSyncedAt = null,
                     message = exception.message ?: text(R.string.sync_failed),
@@ -184,8 +198,8 @@ internal class InventorySyncService(
     }
 
     /** Preset failures are partial failures: successful inventory sync remains committed. */
-    private fun syncBomPresets(endpoint: ResolvedSyncEndpoint<JSONObject>, settings: SyncConfiguration, accountId: String): String {
-        if (endpoint.probe.optInt("bom_preset_protocol") != 1) return " 库存同步完成；服务器暂不支持 BOM 预设同步。"
+    private fun syncBomPresets(endpoint: ResolvedSyncEndpoint<JSONObject>, settings: SyncConfiguration, accountId: String): Pair<Boolean, String> {
+        if (endpoint.probe.optInt("bom_preset_protocol") != 1) return false to " 服务器暂不支持 BOM 预设同步。"
         return try {
             val outbound = synchronized(syncConfigurationLock) {
                 checkSyncConfigurationUnchanged(settings)
@@ -198,9 +212,10 @@ internal class InventorySyncService(
                 checkSyncConfigurationUnchanged(settings)
                 bomPresetStore.mergeRemote(response.getJSONArray("presets"), outbound)
             }
-            " BOM 预设已同步。"
+            true to " BOM 预设已同步。"
         } catch (error: Exception) {
-            " 库存同步完成；BOM 预设未同步：${error.message ?: "请重试"}"
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            false to " BOM 预设未同步：${error.message ?: "请重试"}"
         }
     }
     private fun buildPushPayload(deviceId: String): SyncPayload {

@@ -218,6 +218,12 @@ def finish_account_deletion(settings: Settings, account_id: str) -> None:
             Path(str(path) + suffix).unlink(missing_ok=True)
     except OSError as error:
         raise OSError("Account database is busy; retry deletion.") from error
+    from .photos import photo_directory
+    import shutil
+
+    directory = photo_directory(str(path))
+    if directory.exists():
+        shutil.rmtree(directory)
     with _connect(settings) as connection:
         connection.execute("DELETE FROM web_sessions WHERE account_id = ?", (account_id,))
         connection.execute("DELETE FROM accounts WHERE account_id = ?", (account_id,))

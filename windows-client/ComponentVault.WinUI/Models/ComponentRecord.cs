@@ -53,12 +53,15 @@ public sealed class ComponentRecord
             var local = PrivateProductImageStore.Resolve(
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ComponentVault", "images"), Description);
             if (local is not null) return local;
+            if (PrivateProductImageStore.KeyFromDescription(Description) is not null) return null;
             var value = Description.Split(['；', ';', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
                 .Select(note => note.Trim()).FirstOrDefault(note => note.StartsWith("商品图片：", StringComparison.Ordinal))?
                 .Substring("商品图片：".Length).Trim();
             return value is not null ? LcscPublicCatalog.TrustedImageUrl(value) ?? LcscPublicCatalog.CachedImageUrl(Sku) : LcscPublicCatalog.CachedImageUrl(Sku);
         }
     }
+
+    public string PhotoStatusHint => PrivateProductImageStore.KeyFromDescription(Description) is not null && PrivateProductImageStore.Resolve(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ComponentVault", "images"), Description) is null ? "照片待下载，请同步" : "";
 
     public string DisplayCategory => CategoryDisplay.Localize(Category);
 

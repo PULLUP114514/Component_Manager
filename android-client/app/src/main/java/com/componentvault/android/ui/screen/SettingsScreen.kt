@@ -555,6 +555,7 @@ private fun SettingsSummaryPane(
         title = strings.settings.summaryTitle,
         supporting = strings.settings.summarySubtitle,
     ) {
+        PhotoSyncSettings(syncConfiguration)
         ValueBlock(
             label = strings.settings.endpoint,
             value = syncConfiguration.serverBaseUrl.ifBlank { strings.common.labelNotConfigured },
@@ -1242,4 +1243,34 @@ private fun SettingsChoiceRow(
             onClick = null,
         )
     }
+}
+
+@Composable
+private fun PhotoSyncSettings(configuration: SyncConfiguration) {
+    val configured = configuration.serverBaseUrl.isNotBlank() && configuration.apiToken.isNotBlank()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val photos = remember(context) { com.componentvault.android.data.InventoryPhotoSync(context) }
+    var summary by remember { mutableStateOf("正在读取照片状态…") }
+    var running by remember { mutableStateOf(false) }
+    var revision by remember { mutableStateOf(0) }
+    androidx.compose.runtime.DisposableEffect(context) {
+        val preferences = context.getSharedPreferences("photo-sync", android.content.Context.MODE_PRIVATE)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> revision++ }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    androidx.compose.runtime.LaunchedEffect(configuration, revision) {
+        summary = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { photos.summary(configured) }
+        running = com.componentvault.android.data.InventoryPhotoSync.running.get()
+    }
+    ValueBlock(label = "照片同步", value = summary)
+    OutlinedButton(enabled = !running, onClick = {
+        scope.launch {
+            summary = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { photos.clearDownloads(); photos.summary(configured) }.getOrElse { it.message ?: "缓存清理失败。" }
+            }
+        }
+    }) { Text("清理下载的照片缓存") }
+    Text("仅清理从服务器下载的副本，保留本机原始照片；下次同步可重新下载。", style = MaterialTheme.typography.bodySmall)
 }

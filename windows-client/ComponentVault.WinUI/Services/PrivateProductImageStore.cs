@@ -30,7 +30,7 @@ public static partial class PrivateProductImageStore
         var key = KeyFromDescription(description); if (key is null) return null;
         var canonicalRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var candidate = Path.GetFullPath(Path.Combine(canonicalRoot, key));
-        return candidate.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate) ? candidate : null;
+        return candidate.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate) ? candidate : File.Exists(Path.Combine(root, "downloaded", key)) ? Path.Combine(root, "downloaded", key) : null;
     }
 
     public static string AppendMarker(string? description, string key)

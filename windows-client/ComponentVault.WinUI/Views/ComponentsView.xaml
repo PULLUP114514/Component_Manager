@@ -436,6 +436,7 @@
                                     <Image
                                         Source="{Binding SelectedComponent.ProductImageUrl}"
                                         Stretch="Uniform" />
+                                    <TextBlock Text="{Binding SelectedComponent.PhotoStatusHint}" TextWrapping="Wrap" VerticalAlignment="Bottom" />
                                 </Grid>
                             </Border>
                             <StackPanel

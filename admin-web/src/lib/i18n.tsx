@@ -9,6 +9,10 @@ function readPreference(): LanguagePreference {
 }
 
 export const en = {
+  "元件照片": "Component photo", "查看元件照片": "View component photo",
+  "照片尚未上传到服务端，请在保存原图的设备上同步。": "The photo is not on the server yet. Sync the device that has the original.",
+  "照片加载失败，请重试。": "Could not load the photo. Please retry.",
+  "正在加载照片…": "Loading photo…",
   "BOM 预设": "BOM presets",
   "查看当前账户已同步的 BOM 需求和选择。阅读预设不会扣减库存；请在原生客户端核对匹配并配套。": "View synchronized BOM requirements and selections for this account. Reading presets does not deduct stock. Review matches and kit parts in a native client.",
   "无法读取 BOM 预设": "Could not load BOM presets",

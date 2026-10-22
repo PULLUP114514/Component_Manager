@@ -14,6 +14,9 @@ public sealed class InventorySyncService
         _apiClient = apiClient;
     }
 
+    public string PhotoSummary => new PhotoSyncService(_store, _apiClient).Summary;
+    public string ClearPhotoCache() => new PhotoSyncService(_store, _apiClient).ClearCache();
+
     public Task<OperationResult> TestConnectionAsync(CancellationToken cancellationToken = default)
     {
         return _apiClient.TestConnectionAsync(_store.GetSyncConfiguration(), cancellationToken);
@@ -74,7 +77,20 @@ public sealed class InventorySyncService
                 catch (Exception error) { presetError = error.Message; }
             }
             if (presetError is not null) message = $"库存同步完成；BOM 预设未同步：{presetError} 本地预设已保留，可重试。";
-            if (!string.IsNullOrEmpty(message)) _store.UpdateSyncStatus(_store.GetSyncConfiguration().LastSyncMessage + " " + message);
+            var photos = new PhotoSyncService(_store, _apiClient);
+            try
+            {
+                var photoMessage = await photos.RunAsync(envelope.Settings, result, cancellationToken);
+                var partial = presetError is not null || result.BomPresets is null || photos.ReadState().State != "complete";
+                message = (partial ? "部分完成：库存已完成。" : "同步完成：库存已完成。") + " " + message + " " + photoMessage;
+                _store.UpdateSyncStatus(message);
+                result = result.WithCompletion(message, partial);
+            }
+            catch (OperationCanceledException)
+            {
+                _store.UpdateSyncStatus("部分完成：库存已完成；照片同步已取消，已完成文件保留，请重试。 " + message);
+                throw;
+            }
         }
         return result;
     }

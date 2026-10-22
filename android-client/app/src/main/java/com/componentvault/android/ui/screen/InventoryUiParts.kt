@@ -36,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -456,7 +457,8 @@ internal fun ProductThumbnail(
     val localStore = remember(context) { InventoryImageStore(context) }
     var bitmap by remember(sku, imageUrl, description) { mutableStateOf<android.graphics.Bitmap?>(null) }
     var loading by remember(sku, imageUrl, description) { mutableStateOf(true) }
-    LaunchedEffect(sku, imageUrl, description) {
+    val photoRevision by InventoryImageStore.revision.collectAsState()
+    LaunchedEffect(sku, imageUrl, description, photoRevision) {
         loading = true
         bitmap = runCatching {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -470,7 +472,7 @@ internal fun ProductThumbnail(
                         android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
                     )
                 }
-            } ?: imageStore.load(sku, imageUrl)
+            } ?: if (localStore.key(description) == null) imageStore.load(sku, imageUrl) else null
         }.getOrNull()
         loading = false
     }
@@ -496,6 +498,8 @@ internal fun ProductThumbnail(
                 Text(
                     text = if (loading) {
                         androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.product_image_loading)
+                    } else if (localStore.key(description) != null) {
+                        "照片待下载 / 请同步"
                     } else {
                         androidx.compose.ui.res.stringResource(com.componentvault.android.R.string.product_image_unavailable)
                     },

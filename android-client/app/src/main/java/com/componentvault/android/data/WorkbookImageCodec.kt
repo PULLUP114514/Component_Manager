@@ -54,12 +54,50 @@ internal object WorkbookImageCodec {
     private fun normalize(path:String):String { val out=mutableListOf<String>();path.split('/').forEach{if(it=="..")out.removeLastOrNull() else if(it.isNotBlank()&&it!=".")out+=it};return out.joinToString("/") }
 }
 
-internal class InventoryImageStore(context:Context) {
-    private val root=File(context.filesDir,"images").apply{mkdirs()}.canonicalFile
-    private val marker=Regex("(?:^|\\n)本地图片：([0-9a-f]{64}\\.(?:png|jpg))(?:$|\\n)")
-    fun persist(bytes:ByteArray):String { val value=WorkbookImageCodec.marker(bytes);val name=value.substringAfter('：');val file=safe(name);if(!file.exists()){val temp=File(root,name+".tmp");temp.writeBytes(bytes);check(temp.renameTo(file)){"图片持久化失败。"}};return value }
-    fun exists(value:String)=runCatching{safe(value.substringAfter('：')).isFile}.getOrDefault(false)
-    fun delete(value:String){runCatching{safe(value.substringAfter('：')).delete()}}
-    fun resolve(description:String):ByteArray? { val name=marker.find(description)?.groupValues?.get(1)?:return null;val file=safe(name);return file.takeIf{it.isFile}?.readBytes()?.also{WorkbookImageCodec.validateImage(it)} }
-    private fun safe(name:String):File { require(name.matches(Regex("[0-9a-f]{64}\\.(png|jpg)")));val f=File(root,name).canonicalFile;require(f.parentFile==root){"图片路径越界。"};return f }
+internal class InventoryImageStore(context: Context) {
+    private val root = File(context.filesDir, "images").apply { mkdirs() }.canonicalFile
+    private val downloads = File(context.filesDir, "photo-downloads").apply { mkdirs() }.canonicalFile
+    fun key(description: String): String? = Regex("(?m)^本地图片：([0-9a-f]{64}\\.(?:png|jpg))$").find(description)?.groupValues?.get(1)
+    fun persist(bytes: ByteArray): String {
+        val value = WorkbookImageCodec.marker(bytes)
+        write(root, value.substringAfter('：'), bytes)
+        return value
+    }
+    fun persistDownloaded(name: String, bytes: ByteArray) {
+        require(WorkbookImageCodec.marker(bytes).substringAfter('：') == name) { "照片内容与标识不匹配。" }
+        write(downloads, name, bytes)
+    }
+    private fun write(directory: File, name: String, bytes: ByteArray) {
+        val target = safe(directory, name)
+        if (!target.isFile || runCatching { WorkbookImageCodec.marker(target.readBytes()).substringAfter('：') != name }.getOrDefault(true)) {
+            val temp = File(directory, "$name.tmp")
+            try { temp.writeBytes(bytes); check(temp.renameTo(target)) { "图片持久化失败。" } }
+            finally { temp.delete() }
+            revision.value += 1
+        }
+    }
+    fun exists(value: String) = runCatching { safe(root, value.substringAfter('：')).isFile }.getOrDefault(false)
+    fun delete(value: String) { runCatching { safe(root, value.substringAfter('：')).delete() } }
+    fun resolve(description: String): ByteArray? = key(description)?.let(::read)
+    /** Summary only stats files; byte validation belongs to display/transfer. */
+    fun hasFile(name: String): Boolean = listOf(root, downloads).any { directory ->
+        safe(directory, name).let { it.isFile && it.length() in 1..(5L * 1024 * 1024) }
+    }
+    fun read(name: String): ByteArray? {
+        for (directory in listOf(root, downloads)) {
+            val file = safe(directory, name)
+            if (file.isFile) {
+                val bytes = file.readBytes()
+                if (runCatching { WorkbookImageCodec.marker(bytes).substringAfter('：') == name }.getOrDefault(false)) return bytes
+            }
+        }
+        return null
+    }
+    fun pruneDownloads(keys: Set<String>) { downloads.listFiles()?.filter { it.name !in keys }?.forEach { it.delete() } }
+    fun clearDownloads() { downloads.listFiles()?.forEach { it.delete() }; revision.value += 1 }
+    companion object { val revision = kotlinx.coroutines.flow.MutableStateFlow(0) }
+    private fun safe(directory: File, name: String): File {
+        require(name.matches(Regex("[0-9a-f]{64}\\.(png|jpg)")))
+        return File(directory, name).canonicalFile.also { require(it.parentFile == directory) }
+    }
 }

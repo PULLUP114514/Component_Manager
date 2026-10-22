@@ -588,3 +588,14 @@ All device/audit/conflict APIs use the authenticated account inventory database.
 content 的字段为 `schema_version:1,project_name,production_sets,source_name,file_sha256,available_sheets,selected_sheet,warnings,lines`；每行 `id,sku,name,model,package_name,quantity_per_set,selection,excluded,source_rows`。source_rows 保留工作表、原始行号、单套数量和字段字典。每套数量/套数为正整数且乘积不超过 int32；最多 5000 行。selection 为 null/空字符串/元件 ID 时分别表示自动/明确未匹配/人工指定。不得丢失空字符串或重算收到的行 ID。完整三端样例见 `test-data/bom-preset-v1.json`。
 
 `GET /admin-api/bom-presets` 复用 Web 会话或账户 Token，返回同一结构，只能查看自己的账户。所有这些操作均不扣库存。预设失败应显示部分完成并保留本地文件，不重放已成功库存扣料。
+
+## 元件原图同步协议（photo_protocol=1）
+
+库存元数据按既有协议提交并应用后，客户端独立同步当前有效元件的 `本地图片：<sha256>.(png|jpg)` 引用。关联仍属于元件 description / updated_at，不增加照片版本列，不因文件未下载而删除关联。
+
+- `GET /sync/photos`：返回 `{photo_protocol:1,max_photo_bytes:5242880,photos:[{key,available,size_bytes}]}`；只含当前账户有效元件引用的唯一 key。
+- `PUT /sync/photos/{key}`：raw PNG/JPEG，Content-Type 与扩展名一致，5 MiB 上限，内容 SHA256 与 key 一致；先写临时文件，再原子归档。当前账户必须存在该引用，重复上传幂等。
+- `GET /sync/photos/{key}`：原图二进制。以上接口复用 Bearer 与 `X-Component-Vault-Account-Id`，不接受客户端数据库路径。
+- `GET /admin-api/component-photos/{key}`：复用 Web 登录会话读取；列表/详情附带 `photo_key` 和 `photo_available`。不把令牌放入图片 URL。
+
+`/health`、`/auth/ping` 增加 `photo_protocol:1`。旧服务端不支持时保留本地图片并显示照片未同步。照片交换不改库存数量、库存游标或出入库流水；成功库存不因照片失败重放。每次从当前元件引用与两端文件可用情况推导剩余工作，支持无库存增量时恢复。

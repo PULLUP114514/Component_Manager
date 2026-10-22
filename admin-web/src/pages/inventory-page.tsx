@@ -11,6 +11,7 @@ import {
 import { useSearchParams } from "react-router-dom";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ComponentPhoto } from "@/components/component-photo";
 import { InventoryActions } from "@/components/inventory-actions";
 import { SpecEnrichmentPanel } from "@/components/spec-enrichment-panel";
 import { Button } from "@/components/ui/button";
@@ -175,7 +176,7 @@ export function InventoryPage() {
             <div className="grid gap-3 md:hidden" aria-label={t("库存结果")}>
               {data.items.map((item) => <article key={item.id} className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
-                  <div><button className="min-h-11 text-left font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={(event) => selectComponent(event, item.id)}>{item.sku}</button><p className="text-sm text-slate-700">{item.name}</p></div>
+                  <div><button className="min-h-11 text-left font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={(event) => selectComponent(event, item.id)}>{item.sku}</button><p className="text-sm text-slate-700">{item.name}</p><ComponentPhoto photoKey={item.photo_key} name={item.name} compact /></div>
                   <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${item.low_stock ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>{item.low_stock ? t("低库存") : t("库存充足")}</span>
                 </div>
                 <dl className="mt-4 grid grid-cols-2 gap-3 text-sm"><Detail label={t("分类")} value={locale === "zh-CN" ? displayCategory(item.category) : item.category} /><Detail label={t("库位")} value={locationLabel(item.location)} /><Detail label={t("库存 / 最低")} value={`${formatCount(item.quantity, locale)} / ${formatCount(item.min_stock, locale)}`} /><Detail label={t("更新时间")} value={formatDateTime(item.updated_at, locale)} /></dl>
@@ -192,7 +193,7 @@ export function InventoryPage() {
                 <TableBody>{data.items.map((item) => (
                   <TableRow key={item.id} data-state={selectedId === item.id ? "selected" : undefined}>
                     <TableCell><button className="font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={(event) => selectComponent(event, item.id)}>{item.sku}</button></TableCell>
-                    <TableCell>{item.name}</TableCell>
+                    <TableCell>{item.name}<ComponentPhoto photoKey={item.photo_key} name={item.name} compact /></TableCell>
                     <TableCell className="hidden md:table-cell">{locale === "zh-CN" ? displayCategory(item.category) : item.category}</TableCell>
                     <TableCell>{locationLabel(item.location)}</TableCell>
                     <TableCell className={item.low_stock ? "font-semibold text-amber-700" : ""}>
@@ -231,6 +232,7 @@ export function InventoryPage() {
             {detail.data ? (
               <><dl className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
                 <Detail label={t("料号")} value={detail.data.sku} /><Detail label={t("名称")} value={detail.data.name} />
+                <div className="sm:col-span-2 lg:col-span-3"><ComponentPhoto photoKey={detail.data.photo_key} name={detail.data.name} /></div>
                 <Detail label={t("分类")} value={locale === "zh-CN" ? displayCategory(detail.data.category) : detail.data.category} /><Detail label={t("封装")} value={detail.data.package_name} />
                 <div className="sm:col-span-2 lg:col-span-3">
                   <dt className="text-muted-foreground">{t("元件参数")}</dt>

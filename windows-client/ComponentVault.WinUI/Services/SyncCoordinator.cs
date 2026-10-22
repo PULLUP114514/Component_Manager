@@ -56,6 +56,9 @@ public sealed class SyncCoordinator : ObservableObject, IDisposable
         }
     }
 
+    public string PhotoSyncSummary => _syncService.PhotoSummary;
+    public string ClearPhotoCache() { var message = _syncService.ClearPhotoCache(); _refresh(); return message; }
+
     public bool CanRunSyncActions => !IsBusy;
     public string SyncButtonLabel => IsBusy ? "同步中" : "立即同步";
     public string ShellSyncSummary => string.IsNullOrWhiteSpace(SyncConfiguration.LastSyncedAt)
@@ -85,7 +88,7 @@ public sealed class SyncCoordinator : ObservableObject, IDisposable
     public string SyncConfigurationSummary =>
         $"设备 {SyncConfiguration.DeviceId} · {SyncAutoSyncDisplay} · 最近结果：{SyncConfiguration.LastSyncMessage}";
     public string SyncActionHint => IsBusy
-        ? "正在执行连接测试或同步，请等待当前操作完成。"
+        ? "正在连接或同步库存、BOM 预设与照片，请等待当前操作完成。"
         : "所有写入仍然会先落到本地 SQLite；同步仅在你主动触发或开启自动同步后发生。";
 
     public void Refresh()
@@ -178,6 +181,7 @@ public sealed class SyncCoordinator : ObservableObject, IDisposable
 
     private void NotifyConfiguration()
     {
+        OnPropertyChanged(nameof(PhotoSyncSummary));
         OnPropertyChanged(nameof(ShellSyncSummary));
         OnPropertyChanged(nameof(OverviewSyncSummary));
         OnPropertyChanged(nameof(SyncEndpointDisplay));

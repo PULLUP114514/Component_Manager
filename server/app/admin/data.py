@@ -6,6 +6,7 @@ import sqlite3
 import unicodedata
 
 from ..config import Settings
+from ..photos import photo_fields
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,7 @@ def load_admin_components(
     rows = connection.execute(
             f"""
             SELECT id, sku, name, category, package_name, location,
-                   quantity, min_stock, updated_at,
+                   quantity, min_stock, updated_at, description,
                    quantity <= min_stock AS low_stock
             FROM components
             WHERE {where}
@@ -77,7 +78,7 @@ def load_admin_components(
             [*parameters, page_size, (page - 1) * page_size],
         ).fetchall()
     return AdminComponentPage(
-        items=[dict(row) for row in rows],
+        items=[dict(row) | photo_fields(connection, row["description"]) for row in rows],
         page=page,
         page_size=page_size,
         total=total,
@@ -101,6 +102,7 @@ def load_admin_component(
     if row is None:
         return None
     result = dict(row)
+    result.update(photo_fields(connection, row["description"]))
     result["inventory_managed"] = bool(result["inventory_managed"])
     result["allocations"] = [
             dict(allocation)

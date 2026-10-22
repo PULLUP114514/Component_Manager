@@ -158,6 +158,7 @@ jobs:
           --tests 'com.componentvault.android.model.LocalComponentSkuTest'
           --tests 'com.componentvault.android.ui.screen.ImportLocationPickerUiTest'
           --tests 'com.componentvault.android.ui.screen.ComponentPhotoSessionTest'
+          --tests 'com.componentvault.android.data.InventoryPhotoSyncTest'
           --tests 'com.componentvault.android.data.ImportLearningPersistenceTest'
           --tests 'com.componentvault.android.model.ImportMappingPriorityTest'
           --tests 'com.componentvault.android.ui.screen.QuantityStepperTest'

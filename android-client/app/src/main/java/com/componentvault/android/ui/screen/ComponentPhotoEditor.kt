@@ -166,6 +166,7 @@ internal fun ComponentPhotoEditor(
             modifier = Modifier.fillMaxWidth().height(140.dp),
             contentScale = ContentScale.Fit,
         )
+        if (preview == null && imageStore.key(description) != null) Text("照片待下载，请同步；若原图缺失，请在原设备同步或重新选择。")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(enabled = !busy, onClick = { runCatching { gallery.launch("image/*") }.onFailure { error = it.message } }) {
                 Text(stringResource(R.string.component_photo_choose))

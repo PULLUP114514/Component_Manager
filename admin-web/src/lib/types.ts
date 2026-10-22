@@ -64,6 +64,8 @@ export interface AdminInventoryResponse {
 
 export interface AdminComponentListItem {
   id: string;
+  photo_key?: string | null;
+  photo_available?: boolean;
   sku: string;
   name: string;
   category: string;

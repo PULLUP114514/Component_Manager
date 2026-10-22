@@ -6,7 +6,7 @@ using ComponentVault.WinUI.Models;
 
 namespace ComponentVault.WinUI.Services;
 
-public sealed class SyncApiClient
+public sealed partial class SyncApiClient
 {
     private readonly HttpClient _httpClient;
     private readonly JsonSerializerOptions _jsonOptions = new()
@@ -140,6 +140,8 @@ public sealed class SyncApiClient
                 IsSuccess = true,
                 Message = "同步已成功完成。",
                 UsedServerBaseUrl = serverBaseUrl,
+                PhotoProtocol = capability.PhotoProtocol,
+                Identity = identity,
                 AcceptedComponents = pushResponse.Payload!.AcceptedComponents,
                 AcceptedStockMovements = pushResponse.Payload.AcceptedStockMovements,
                 PullResponse = pullResponse.Payload!,

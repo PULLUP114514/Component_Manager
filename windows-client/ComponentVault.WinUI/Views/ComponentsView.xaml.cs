@@ -524,7 +524,7 @@ public sealed partial class ComponentsView : Page
 
     private async Task TryLazyImageLookupAsync(ComponentRecord? component)
     {
-        if (component is null || component.ProductImageUrl is not null) return;
+        if (component is null || component.ProductImageUrl is not null || PrivateProductImageStore.KeyFromDescription(component.Description) is not null) return;
         var sku = LcscPublicCatalog.NormalizeSku(component.Sku);
         if (sku is null || !_lazyLookupAttempted.Add(sku)) return;
         try

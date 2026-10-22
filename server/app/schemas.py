@@ -20,6 +20,7 @@ class HealthResponse(BaseModel):
     server_time: datetime
     inventory_protocol: int = 1
     bom_preset_protocol: int = 1
+    photo_protocol: int = 1
     version: str = BUILD_VERSION
     revision: str = BUILD_REVISION
 
@@ -29,6 +30,7 @@ class SyncTokenStatus(BaseModel):
     server_time: datetime
     inventory_protocol: int = 1
     bom_preset_protocol: int = 1
+    photo_protocol: int = 1
 
 
 class StorageLocationPayload(BaseModel):
@@ -181,6 +183,8 @@ class AdminInventoryResponse(BaseModel):
 
 
 class AdminComponentListItem(BaseModel):
+    photo_key: str | None = None
+    photo_available: bool = False
     id: str
     sku: str
     name: str
