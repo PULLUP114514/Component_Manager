@@ -172,22 +172,26 @@ public sealed class MovementEntryDialog(
             XamlRoot = xamlRoot,
         };
         const double maximumDialogWidth = 720;
+        const double maximumContentHeight = 600;
+        const double verticalChromeAndMargins = 224;
         const double windowMargin = 24;
         var dialogPadding = new Thickness(24);
         dialog.Resources["ContentDialogMinWidth"] = 0d;
         dialog.Resources["ContentDialogMaxWidth"] = maximumDialogWidth;
         dialog.Resources["ContentDialogPadding"] = dialogPadding;
-        void UpdateLayoutWidth()
+        void UpdateLayoutSize()
         {
             var dialogWidth = Math.Min(maximumDialogWidth, Math.Max(0, xamlRoot.Size.Width - 2 * windowMargin));
             var contentWidth = Math.Max(0, dialogWidth - dialogPadding.Left - dialogPadding.Right
                 - dialog.BorderThickness.Left - dialog.BorderThickness.Right);
             if (overlayLayout.Width != contentWidth) overlayLayout.Width = contentWidth;
+            var contentHeight = Math.Min(maximumContentHeight, Math.Max(0, xamlRoot.Size.Height - verticalChromeAndMargins));
+            if (overlayLayout.MaxHeight != contentHeight) overlayLayout.MaxHeight = contentHeight;
         }
-        void OnRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => UpdateLayoutWidth();
+        void OnRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => UpdateLayoutSize();
         dialog.Opened += (_, _) =>
         {
-            UpdateLayoutWidth();
+            UpdateLayoutSize();
             movementTypeCombo.Focus(FocusState.Programmatic);
             componentSearch.IsSuggestionListOpen = false;
         };
@@ -239,7 +243,7 @@ public sealed class MovementEntryDialog(
             };
         };
 
-        UpdateLayoutWidth();
+        UpdateLayoutSize();
         xamlRoot.Changed += OnRootChanged;
         try
         {

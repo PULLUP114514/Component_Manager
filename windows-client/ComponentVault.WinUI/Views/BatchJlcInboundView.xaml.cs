@@ -42,7 +42,6 @@ public sealed partial class BatchJlcInboundView:Page
             SaveRemaining();
             var picker = new FileOpenPicker();
             picker.FileTypeFilter.Add(".xls");
-            picker.FileTypeFilter.Add(".xlsx");
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(((App)Application.Current).Window));
             var file = await picker.PickSingleFileAsync();
             if (file is null) return;
@@ -70,46 +69,48 @@ public sealed partial class BatchJlcInboundView:Page
         var cache = new Dictionary<string, LcscCatalogLookupResult>(StringComparer.OrdinalIgnoreCase);
         var locations = ViewModel.StorageLocations.ToArray();
         var defaultLocation = (DefaultLocationBox.SelectedItem as StorageLocationRecord)?.Id ?? locations.FirstOrDefault()?.Id ?? "";
-        var source = scans.ToArray();
-        var fallbackCount = 0;
+        var source = scans.Select(scan => (Scan: scan, OrderImport: IsOrderImport(scan.Raw), Row: CreateRow(scan))).ToArray();
+        // Show all spreadsheet data before awaiting the first catalog request.
+        foreach (var entry in source.Where(entry => entry.OrderImport))
+        {
+            Remove(entry.Row.ReceiptId);
+            AddResult(entry.Row, OrderReviewReason(entry.Scan, entry.Row, "资料不完整，请补齐名称、分类和封装。"));
+        }
+        if (source.Any(entry => entry.OrderImport)) SaveRemaining();
         var processed = 0;
-        foreach (var scan in source)
+        var lookupFailures = 0;
+        foreach (var entry in source)
         {
             if (token.IsCancellationRequested || generation != _generation) break;
-            var orderImport = IsOrderImport(scan.Raw);
-            var parsed = orderImport
-                ? new JlcParsedLabel(scan.Sku, null, null, null, null, null, null, null, null)
-                : JlcQrParser.Parse(scan.Raw);
-            var editedSku = LcscPublicCatalog.NormalizeSku(scan.Sku);
-            var skuChanged = editedSku is not null && !editedSku.Equals(parsed.Sku, StringComparison.OrdinalIgnoreCase);
-            var editedQuantity = int.TryParse(scan.QuantityText, out var quantity) && quantity > 0 ? quantity : (int?)null;
-            var row = new BatchInboundEditableRow
-            {
-                ReceiptId = scan.ReceiptId, Raw = scan.Raw, Selected = scan.Selected,
-                Sku = editedSku ?? parsed.Sku, QuantityInput = editedQuantity ?? parsed.Quantity ?? double.NaN,
-                LocationId = string.IsNullOrWhiteSpace(scan.LocationId) ? defaultLocation : scan.LocationId,
-                Name = skuChanged ? "" : scan.Name.Length > 0 ? scan.Name : parsed.PartName ?? parsed.Model ?? "",
-                Category = skuChanged ? "" : scan.Category,
-                PackageName = skuChanged ? "" : scan.PackageName.Length > 0 ? scan.PackageName : parsed.PackageDetail ?? "",
-                Description = skuChanged ? "" : scan.Description, Reason = parsed.ParseError ?? scan.Error, LocationOptions = locations,
-            };
-            Remove(scan.ReceiptId);
+            var (scan, orderImport, row) = entry;
+            if (!orderImport) Remove(scan.ReceiptId);
             processed++;
-            CountText.Text = $"正在识别 {processed}/{source.Length}：{row.Sku} · 就绪 {_ready.Count} · 待处理 {_pending.Count}";
-            if (string.IsNullOrWhiteSpace(row.Sku) || row.Quantity is null ||
-                (orderImport && scan.Status == "captured" && !string.IsNullOrWhiteSpace(scan.Error)))
+            CountText.Text = $"正在查询 {processed}/{source.Length}：{row.Sku} · 待核对 {_ready.Count} · 待处理 {_pending.Count}";
+            if (LcscPublicCatalog.NormalizeSku(row.Sku) is null)
             {
-                if (string.IsNullOrWhiteSpace(row.Reason)) row.Reason = "料号或订购数量无效，请手动确认。";
-                _pending.Add(row);
+                AddResult(row, "料号无效，请手动填写合法的 C 编号。");
+                continue;
+            }
+            if (!orderImport && row.Quantity is null)
+            {
+                AddResult(row, string.IsNullOrWhiteSpace(row.Reason) ? "数量无效，请手动确认。" : row.Reason);
                 continue;
             }
             var local = ViewModel.FindActiveComponentBySku(row.Sku);
             if (local is not null)
             {
-                row.Name = local.Name; row.Category = local.Category;
-                row.PackageName = local.PackageName; row.Description = local.Description;
-                AddResult(Complete(row) ? "" : "请补齐数量、库位和资料。");
-                continue;
+                if (orderImport)
+                {
+                    ApplyMetadata(CurrentMetadata().FillMissingFrom(new(local.Name, local.Category, local.PackageName, local.Description)));
+                    AddResult(row, OrderReviewReason(scan, row, "资料不完整，请补齐名称、分类和封装。"));
+                }
+                else
+                {
+                    row.Name = local.Name; row.Category = local.Category;
+                    row.PackageName = local.PackageName; row.Description = local.Description;
+                    AddResult(row, ReadyForReview(row) ? "" : "请补齐数量和资料。");
+                    continue;
+                }
             }
             try
             {
@@ -124,36 +125,99 @@ public sealed partial class BatchJlcInboundView:Page
                     AddLookupFailure(string.IsNullOrWhiteSpace(lookup.UserMessage) ? "商城无精确匹配，请手动补齐资料。" : lookup.UserMessage);
                     continue;
                 }
-                if (string.IsNullOrWhiteSpace(scan.Name)) row.Name = OfficialSpecifications.AutoName(metadata);
-                if (!string.IsNullOrWhiteSpace(metadata.Category)) row.Category = metadata.Category;
-                if (!string.IsNullOrWhiteSpace(metadata.PackageName)) row.PackageName = metadata.PackageName;
-                row.Description = string.Join("\n", new[] { row.Description, CatalogNotes(metadata) }.Where(text => !string.IsNullOrWhiteSpace(text)));
-                AddResult(Complete(row) ? "" : "商城资料不完整，请手动补齐名称、分类、封装和库位。");
+                if (orderImport)
+                {
+                    ApplyMetadata(CurrentMetadata().FillMissingFrom(new(
+                        OfficialSpecifications.AutoName(metadata), metadata.Category, metadata.PackageName ?? "", CatalogNotes(metadata))));
+                }
+                else
+                {
+                    if (string.IsNullOrWhiteSpace(row.Name)) row.Name = OfficialSpecifications.AutoName(metadata);
+                    if (!string.IsNullOrWhiteSpace(metadata.Category)) row.Category = metadata.Category;
+                    if (!string.IsNullOrWhiteSpace(metadata.PackageName)) row.PackageName = metadata.PackageName;
+                    row.Description = CatalogNotes(metadata);
+                }
+                AddResult(row, orderImport
+                    ? OrderReviewReason(scan, row, "商城资料不完整，请手动补齐名称、分类和封装。")
+                    : ReadyForReview(row) ? "" : "商城资料不完整，请手动补齐名称、分类和封装。");
             }
             catch (OperationCanceledException)
             {
-                if (generation == _generation) AddResult("查询已取消，可重试或手动确认资料。");
+                if (generation == _generation) AddResult(row, orderImport
+                    ? OrderReviewReason(scan, row, "查询已取消，可重试或手动确认资料。")
+                    : "查询已取消，可重试或手动确认资料。");
                 break;
             }
             catch (Exception exception) { AddLookupFailure($"查询失败（{exception.GetType().Name}），可重试或手填。"); }
 
-            void AddResult(string reason)
-            {
-                row.Reason = reason;
-                (reason.Length == 0 ? _ready : _pending).Add(row);
-            }
             void AddLookupFailure(string reason)
             {
-                if (orderImport && Complete(row)) { fallbackCount++; AddResult(""); }
-                else AddResult(reason);
+                lookupFailures++;
+                AddResult(row, orderImport ? OrderReviewReason(scan, row, reason) : reason);
+            }
+            BatchInboundMetadata CurrentMetadata() => new(row.Name, row.Category, row.PackageName, row.Description);
+            void ApplyMetadata(BatchInboundMetadata metadata)
+            {
+                row.Name = metadata.Name;
+                row.Category = metadata.Category;
+                row.PackageName = metadata.PackageName;
+                row.Description = metadata.Description;
             }
         }
         if (generation != _generation) return;
+        if (token.IsCancellationRequested)
+        {
+            foreach (var entry in source.Skip(processed).Where(entry => entry.OrderImport))
+                AddResult(entry.Row, OrderReviewReason(entry.Scan, entry.Row, "查询已取消，可重试或手动确认资料。"));
+        }
         SaveRemaining();
         RefreshCount();
-        if (token.IsCancellationRequested) CountText.Text += "；查询已取消，未处理条目可继续解析。";
-        if (fallbackCount > 0) CountText.Text += $"；{fallbackCount} 条使用表格中的完整资料，请核对。";
+        if (lookupFailures > 0) CountText.Text += $"；{lookupFailures} 条未取得商城资料，已保留表格和草稿数据。";
+        if (token.IsCancellationRequested) CountText.Text += "；查询已取消，表格数据已保留；缺项条目可在待处理页重试。";
         if (_pending.Count > 0) await ShowBatchErrorAsync("部分条目需要处理", $"有 {_pending.Count} 条未就绪，已保留在“待处理”页。可重试、手填或移除；就绪项可单独提交。");
+
+        BatchInboundEditableRow CreateRow(BatchScanItem scan)
+        {
+            var orderImport = IsOrderImport(scan.Raw);
+            var parsed = orderImport
+                ? new JlcParsedLabel(scan.Sku, null, null, null, null, null, null, null, null)
+                : JlcQrParser.Parse(scan.Raw);
+            var editedSku = LcscPublicCatalog.NormalizeSku(scan.Sku);
+            var skuChanged = !orderImport && editedSku is not null && !editedSku.Equals(parsed.Sku, StringComparison.OrdinalIgnoreCase);
+            var editedQuantity = int.TryParse(scan.QuantityText, out var quantity) && quantity > 0 ? quantity : (int?)null;
+            return new()
+            {
+                ReceiptId = scan.ReceiptId, Raw = scan.Raw, Selected = scan.Selected,
+                Sku = editedSku ?? parsed.Sku, QuantityInput = editedQuantity ?? parsed.Quantity ?? double.NaN,
+                LocationId = string.IsNullOrWhiteSpace(scan.LocationId) ? defaultLocation : scan.LocationId,
+                Name = skuChanged ? "" : scan.Name.Length > 0 ? scan.Name : parsed.PartName ?? parsed.Model ?? "",
+                Category = skuChanged ? "" : scan.Category,
+                PackageName = skuChanged ? "" : scan.PackageName.Length > 0 ? scan.PackageName : parsed.PackageDetail ?? "",
+                Description = skuChanged ? "" : scan.Description, Reason = parsed.ParseError ?? scan.Error, LocationOptions = locations,
+            };
+        }
+        static string OrderReviewReason(BatchScanItem scan, BatchInboundEditableRow row, string missingMetadataReason)
+        {
+            // A successful lookup must not approve quantities, refunds or ambiguous source rows.
+            if (scan.Status == "captured" && !string.IsNullOrWhiteSpace(scan.Error)) return scan.Error;
+            if (row.Quantity is null) return "订购数量无效，请手动确认正整数数量。";
+            return ReadyForReview(row) ? "" : missingMetadataReason;
+        }
+        void AddResult(BatchInboundEditableRow row, string reason)
+        {
+            row.Reason = reason;
+            var target = reason.Length == 0 ? _ready : _pending;
+            var other = reason.Length == 0 ? _pending : _ready;
+            other.Remove(row);
+            var index = target.IndexOf(row);
+            if (index < 0) target.Add(row);
+            else
+            {
+                // Recreate one-time XAML bindings after filling fields or changing the status.
+                target.RemoveAt(index);
+                target.Insert(index, row);
+            }
+        }
     }
     private static bool IsOrderImport(string raw) => raw.StartsWith("lcsc-order:", StringComparison.Ordinal);
     private async Task<LcscCatalogLookupResult> LookupCatalogAsync(string sku, CancellationToken cancellationToken)
@@ -169,7 +233,8 @@ public sealed partial class BatchJlcInboundView:Page
             CancelLookupButton.IsEnabled = false;
         }
     }
-    private static bool Complete(BatchInboundEditableRow x)=>x.Quantity is not null&&LcscPublicCatalog.NormalizeSku(x.Sku) is not null&&!string.IsNullOrWhiteSpace(x.LocationId)&&!string.IsNullOrWhiteSpace(x.Name)&&!string.IsNullOrWhiteSpace(x.Category)&&!string.IsNullOrWhiteSpace(x.PackageName);
+    private static bool ReadyForReview(BatchInboundEditableRow x)=>x.Quantity is not null&&LcscPublicCatalog.NormalizeSku(x.Sku) is not null&&new BatchInboundMetadata(x.Name,x.Category,x.PackageName,x.Description).HasRequiredFields;
+    private static bool Complete(BatchInboundEditableRow x)=>ReadyForReview(x)&&!string.IsNullOrWhiteSpace(x.LocationId);
     private static string CatalogNotes(LcscProductMetadata m){var lines=new List<string>();void Add(string? x){if(!string.IsNullOrWhiteSpace(x))lines.Add(x);}Add(m.LookupNotice);Add(m.Model is null?null:$"型号：{m.Model}");Add(m.Description is null?null:$"官方描述：{m.Description}");Add(m.Brand is null?null:$"品牌：{m.Brand}");Add($"官方商品页：{m.OfficialUrl}");Add(m.CategoryPath is null?null:$"官方分类路径：{m.CategoryPath}");Add(m.ImageUrl is null?null:$"商品图片：{m.ImageUrl}");Add(m.DatasheetUrl is null?null:$"数据手册：{m.DatasheetUrl}");if(m.Parameters is not null)foreach(var p in m.Parameters)Add($"参数·{p.Key}：{p.Value}");return string.Join("\n",lines);}
     private void Remove(string receipt){var ready=_ready.FirstOrDefault(x=>x.ReceiptId==receipt);if(ready is not null)_ready.Remove(ready);var pending=_pending.FirstOrDefault(x=>x.ReceiptId==receipt);if(pending is not null)_pending.Remove(pending);}
     private void OnCancelLookup(object sender,RoutedEventArgs e)
@@ -224,7 +289,7 @@ public sealed partial class BatchJlcInboundView:Page
         try
         {
             var selected = PendingList.SelectedItems.Cast<BatchInboundEditableRow>().ToArray();
-            var manualReady = selected.Where(row => Complete(row) &&
+            var manualReady = selected.Where(row => ReadyForReview(row) &&
                 (IsOrderImport(row.Raw) || row.Sku.Equals(JlcQrParser.Parse(row.Raw).Sku, StringComparison.OrdinalIgnoreCase))).ToArray();
             foreach (var row in manualReady)
             {
@@ -251,10 +316,10 @@ public sealed partial class BatchJlcInboundView:Page
         if (await dialog.ShowAsync()!=ContentDialogResult.Primary) return;
         _generation++;_lookupCancellation?.Cancel();_drafts.Clear();_draftLoadFailed=false;_removed.Clear();_ready.Clear();_pending.Clear();RefreshCount();
     }
-    private void SaveRemaining(){var shown=_ready.Concat(_pending).Select(x=>x.ReceiptId).ToHashSet();var captured=_drafts.Load().Where(x=>!shown.Contains(x.ReceiptId)&&!_removed.Contains(x.ReceiptId));_drafts.Save(captured.Concat(_ready.Concat(_pending).Select(ToDraft)).ToArray());}
-    private void RefreshCount()=>CountText.Text=$"草稿 {_drafts.Load().Count}/500 包 · 就绪 {_ready.Count} · 待处理 {_pending.Count}";
+    private void SaveRemaining(){var shown=_ready.Concat(_pending).Select(x=>x.ReceiptId).ToHashSet();var captured=_drafts.Load().Where(x=>!shown.Contains(x.ReceiptId)&&!_removed.Contains(x.ReceiptId)&&!ViewModel.IsBatchReceiptCommitted(x.ReceiptId));_drafts.Save(captured.Concat(_ready.Concat(_pending).Select(ToDraft)).ToArray());}
+    private void RefreshCount()=>CountText.Text=$"草稿 {_drafts.Load().Count}/500 条 · 待核对 {_ready.Count} · 待处理 {_pending.Count}";
     private void OnUnloaded(object sender,RoutedEventArgs e){CancelLookupButton.IsEnabled=false;_generation++;_lookupCancellation?.Cancel();if(_draftLoadFailed)return;try{SaveRemaining();}catch(Exception ex){CountText.Text=ex.Message;}}
-    private static BatchScanItem ToDraft(BatchInboundEditableRow x)=>new(x.ReceiptId,x.Raw){Status=x.Reason.Length==0&&Complete(x)?"ready":"pending",Selected=x.Selected,Sku=x.Sku,QuantityText=x.Quantity?.ToString()??"",LocationId=x.LocationId,Name=x.Name,Category=x.Category,PackageName=x.PackageName,Description=x.Description,Error=x.Reason};
+    private static BatchScanItem ToDraft(BatchInboundEditableRow x)=>new(x.ReceiptId,x.Raw){Status=x.Reason.Length==0&&ReadyForReview(x)?"ready":"pending",Selected=x.Selected,Sku=x.Sku,QuantityText=x.Quantity?.ToString()??"",LocationId=x.LocationId,Name=x.Name,Category=x.Category,PackageName=x.PackageName,Description=x.Description,Error=x.Reason};
     private static BatchInboundEditableRow FromDraft(BatchScanItem x,IReadOnlyList<StorageLocationRecord> locations)=>new(){ReceiptId=x.ReceiptId,Raw=x.Raw,Selected=x.Selected,Sku=x.Sku,QuantityInput=int.TryParse(x.QuantityText,out var q)?q:double.NaN,LocationId=x.LocationId,Name=x.Name,Category=x.Category,PackageName=x.PackageName,Description=x.Description,Reason=x.Error,LocationOptions=locations};
     private void SetBusy(bool value){_busy=value;ImportOrdersButton.IsEnabled=!value;HeaderBackButton.IsEnabled=!value;CollectButton.IsEnabled=!value;ParseButton.IsEnabled=!value;ClearButton.IsEnabled=!value;ApplyLocationButton.IsEnabled=!value;SubmitButton.IsEnabled=!value;RetryButton.IsEnabled=!value;RemoveButton.IsEnabled=!value;CaptureBox.IsEnabled=!value;ReadyList.IsEnabled=!value;PendingList.IsEnabled=!value;DefaultLocationBox.IsEnabled=!value;CreateLocationButton.IsEnabled=!value;}
     private async Task ShowBatchErrorAsync(string title,string message)=>await new ContentDialog{Title=title,Content=new TextBlock{Text=message,TextWrapping=TextWrapping.Wrap},CloseButtonText="关闭",XamlRoot=XamlRoot}.ShowAsync();

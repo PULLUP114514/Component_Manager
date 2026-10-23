@@ -1,6 +1,6 @@
 <Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:ComponentVault.WinUI.Views" x:Class="ComponentVault.WinUI.Views.BatchJlcInboundView" Unloaded="OnUnloaded">
     <Page.Resources>
-        <Style x:Key="BatchInboundListItemStyle" TargetType="ListViewItem">
+        <Style x:Key="BatchInboundListItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         </Style>
     </Page.Resources>
@@ -34,20 +34,20 @@
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <StackPanel>
                 <TextBlock Style="{StaticResource PageTitleTextStyle}" Text="批量嘉立创入库"/>
-                <TextBlock Style="{StaticResource PageSubtitleTextStyle}" Text="导入立创商城表格后自动识别，或扫码、逐行粘贴包装 QR；核对后确认入库。"/>
+                <TextBlock Style="{StaticResource PageSubtitleTextStyle}" Text="导入立创商城表格填入草稿后，立即尝试查询嘉立创；也可扫码、逐行粘贴包装 QR。核对后确认入库。"/>
             </StackPanel>
             <Button x:Name="HeaderBackButton" HorizontalAlignment="Right" Click="OnBack" Content="返回库存"/>
         </Grid>
         <Border Grid.Row="1" Style="{StaticResource CardBorderStyle}">
             <StackPanel Spacing="10">
                 <Button x:Name="ImportOrdersButton" Click="OnImportOrders" Content="导入立创商城表格…"/>
-                <TextBlock Text="支持物料明细对账单、订单详情（.xls / .xlsx），按订购数量添加；自动跳过运费、汇总和已导入订单。" TextWrapping="Wrap"/>
+                <TextBlock Text="支持物料明细对账单、订单详情（.xls），导入后自动查询每个有效 C 编号，查询结果只补缺失字段；按订购数量添加，自动跳过运费、汇总和已导入订单。" TextWrapping="Wrap"/>
                 <TextBox x:Name="CaptureBox" Header="扫码或粘贴" PlaceholderText="扫码后按回车；也可粘贴多行" AcceptsReturn="True" KeyDown="OnCaptureKeyDown"/>
                 <Grid ColumnSpacing="8" RowSpacing="8">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition x:Name="CaptureColumn3" Width="Auto"/><ColumnDefinition x:Name="CaptureColumn4" Width="Auto"/></Grid.ColumnDefinitions>
                     <Button x:Name="CollectButton" Click="OnCollect" Content="收集文本"/>
-                    <Button x:Name="ParseButton" Grid.Column="1" Click="OnParse" Content="解析未处理包装" Style="{StaticResource AccentButtonStyle}"/>
+                    <Button x:Name="ParseButton" Grid.Column="1" Click="OnParse" Content="解析未处理条目" Style="{StaticResource AccentButtonStyle}"/>
                     <Button x:Name="CancelLookupButton" Grid.Column="2" Click="OnCancelLookup" Content="取消查询" IsEnabled="False"/>
                     <Button x:Name="ClearButton" Grid.Column="3" Click="OnClearDraft" Content="清空草稿"/>
                 </Grid>
