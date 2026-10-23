@@ -13,16 +13,6 @@ using WinRT.Interop;
 
 namespace ComponentVault.WinUI.Views;
 
-public sealed class BatchInboundEditableRow
-{
-    public required string ReceiptId{get;init;} public required string Raw{get;init;} public bool Selected{get;set;}=true;public string Sku{get;set;}="";public double QuantityInput{get;set;}=double.NaN;public string LocationId{get;set;}="";public string Name{get;set;}="";public string Category{get;set;}="";public string PackageName{get;set;}="";public string Description{get;set;}="";public string Reason{get;set;}="";public IReadOnlyList<StorageLocationRecord> LocationOptions{get;set;}=[];
-    public string Summary=>Raw.StartsWith("lcsc-order:",StringComparison.Ordinal)?$"{Sku} · {Name} · 订单条目":$"{Sku} · 包装 {ReceiptId[..8]}";
-    public string Specifications=>OfficialSpecifications.FromDescription(Description,Category);
-    public Visibility SpecificationsVisibility => string.IsNullOrWhiteSpace(Specifications) ? Visibility.Collapsed : Visibility.Visible;
-    public string ManualMetadata{get=>$"{Name} | {Category} | {PackageName}";set{var p=value.Split('|');Name=p.ElementAtOrDefault(0)?.Trim()??"";Category=p.ElementAtOrDefault(1)?.Trim()??"";PackageName=p.ElementAtOrDefault(2)?.Trim()??"";}}
-    public int? Quantity=>double.IsFinite(QuantityInput)&&QuantityInput==Math.Truncate(QuantityInput)&&QuantityInput is >0 and <=int.MaxValue?(int)QuantityInput:null;
-}
-
 public sealed partial class BatchJlcInboundView:Page
 {
     private readonly BatchInboundDraftStore _drafts=new();private readonly LcscPublicLookup _lookup=new();private readonly ObservableCollection<BatchInboundEditableRow> _ready=[];private readonly ObservableCollection<BatchInboundEditableRow> _pending=[];private readonly HashSet<string> _removed=[];private CancellationTokenSource? _lookupCancellation;private int _generation;private bool _draftLoadFailed;private bool _busy;
@@ -33,6 +23,25 @@ public sealed partial class BatchJlcInboundView:Page
         ReadyList.ItemsSource = _ready;
         PendingList.ItemsSource = _pending;
         DefaultLocationBox.ItemsSource = ViewModel.StorageLocations;
+        InitializeReadySelection();
+        InitializePendingSelection();
+        InitializeTableContextMenus();
+        InitializeReadyLayout();
+        InitializePendingLayout();
+        ReadyList.SizeChanged += (_, _) => UpdateReadyRowWidths();
+        _ready.CollectionChanged += (_, args) =>
+        {
+            if (args.NewItems is not null)
+                foreach (BatchInboundEditableRow row in args.NewItems) row.ReviewWidth = ReadyRowWidth();
+        };
+        UpdateReadyRowWidths();
+        PendingList.SizeChanged += (_, _) => UpdatePendingRowWidths();
+        _pending.CollectionChanged += (_, args) =>
+        {
+            if (args.NewItems is not null)
+                foreach (BatchInboundEditableRow row in args.NewItems) row.PendingWidth = PendingRowWidth();
+        };
+        UpdatePendingRowWidths();
         _ready.CollectionChanged += (_, _) => UpdateTabHeaders();
         _pending.CollectionChanged += (_, _) => UpdateTabHeaders();
         UpdateTabHeaders();
@@ -52,6 +61,20 @@ public sealed partial class BatchJlcInboundView:Page
     {
         PendingTab.Header = $"待处理（{_pending.Count}）";
         ReviewTab.Header = $"待核对（{_ready.Count}）";
+    }
+    private double ReadyRowWidth() => Math.Max(540, ReadyList.ActualWidth - 32);
+    private void UpdateReadyRowWidths()
+    {
+        var width = ReadyRowWidth();
+        ReadyColumnsHeader.Width = width;
+        foreach (var row in _ready) row.ReviewWidth = width;
+    }
+    private double PendingRowWidth() => Math.Max(810, PendingList.ActualWidth - 32);
+    private void UpdatePendingRowWidths()
+    {
+        var width = PendingRowWidth();
+        PendingColumnsHeader.Width = width;
+        foreach (var row in _pending) row.PendingWidth = width;
     }
     private void OnBack(object sender,RoutedEventArgs e){if(_busy)return;if(((App)Application.Current).Window is MainWindow window)window.GoBack();}
     public bool TryPrepareToLeave(){if(_busy)return false;PersistEdits();return true;}
@@ -239,8 +262,13 @@ public sealed partial class BatchJlcInboundView:Page
             else
             {
                 // Recreate one-time XAML bindings after filling fields or changing the status.
-                target.RemoveAt(index);
-                target.Insert(index, row);
+                void RefreshRow()
+                {
+                    target.RemoveAt(index);
+                    target.Insert(index, row);
+                }
+                if (ReferenceEquals(target, _ready)) RefreshReadySelection(RefreshRow);
+                else RefreshPendingSelection(RefreshRow);
             }
         }
     }
@@ -271,7 +299,12 @@ public sealed partial class BatchJlcInboundView:Page
     }
     private async void OnCreateLocation(object sender, RoutedEventArgs e)
     {
-        if (_busy) return;
+        try { await CreateInboundLocationAsync(false); }
+        catch (Exception exception) { await ShowBatchErrorAsync("新建库位失败", exception.Message); }
+    }
+    private async Task<StorageLocationRecord?> CreateInboundLocationAsync(bool assignToSelection = false)
+    {
+        if (_busy) return null;
         var newLocationId = "LOC-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
         var nameBox = new TextBox { Header = "新库位名称", PlaceholderText = "例如 电阻抽屉" };
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
@@ -281,7 +314,7 @@ public sealed partial class BatchJlcInboundView:Page
         StorageLocationRecord? created = null;
         var dialog = new ContentDialog
         {
-            Title = "新建入库库位", Content = form, PrimaryButtonText = "新建并选择",
+            Title = "新建入库库位", Content = form, PrimaryButtonText = assignToSelection ? "新建并指派" : "新建并选择",
             CloseButtonText = "取消", XamlRoot = XamlRoot,
         };
         dialog.PrimaryButtonClick += (_, args) =>
@@ -296,17 +329,47 @@ public sealed partial class BatchJlcInboundView:Page
             if (!result.IsSuccess) { error.Text = result.Message; args.Cancel = true; return; }
             created = ViewModel.StorageLocations.FirstOrDefault(item => item.Id == newLocationId);
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary || created is null) return;
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary || created is null) return null;
         var options = ViewModel.StorageLocations.ToArray();
         foreach (var row in _ready.Concat(_pending)) row.LocationOptions = options;
         DefaultLocationBox.ItemsSource = ViewModel.StorageLocations;
         DefaultLocationBox.SelectedItem = created;
-        ReadyList.ItemsSource = null;
-        ReadyList.ItemsSource = _ready;
-        PendingList.ItemsSource = null;
-        PendingList.ItemsSource = _pending;
+        RefreshReadySelection(() =>
+        {
+            ReadyList.ItemsSource = null;
+            ReadyList.ItemsSource = _ready;
+        });
+        RefreshPendingSelection(() =>
+        {
+            PendingList.ItemsSource = null;
+            PendingList.ItemsSource = _pending;
+        });
+        return created;
     }
-    private void OnApplyDefaultLocation(object sender,RoutedEventArgs e){if(_busy)return;if(DefaultLocationBox.SelectedItem is StorageLocationRecord location)foreach(var row in _ready.Concat(_pending))row.LocationId=location.Id;SaveRemaining();ReadyList.ItemsSource=null;ReadyList.ItemsSource=_ready;PendingList.ItemsSource=null;PendingList.ItemsSource=_pending;}
+    private void OnApplyDefaultLocation(object sender,RoutedEventArgs e)
+    {
+        if (_busy) return;
+        if (DefaultLocationBox.SelectedItem is not StorageLocationRecord location) return;
+        EndReadyPointerSelection();
+        var selectedCount = _ready.Count(row => row.Selected);
+        var onlySelected = selectedCount > 0 && selectedCount < _ready.Count;
+        var targets = onlySelected ? _ready.Where(row => row.Selected) : _ready.Concat(_pending);
+        foreach (var row in targets) row.LocationId = location.Id;
+        SaveRemaining();
+        RefreshReadySelection(() =>
+        {
+            ReadyList.ItemsSource = null;
+            ReadyList.ItemsSource = _ready;
+        });
+        if (!onlySelected)
+        {
+            RefreshPendingSelection(() =>
+            {
+                PendingList.ItemsSource = null;
+                PendingList.ItemsSource = _pending;
+            });
+        }
+    }
     private async void OnRetryPending(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
@@ -333,7 +396,7 @@ public sealed partial class BatchJlcInboundView:Page
     private void OnDraftFieldLostFocus(object sender,RoutedEventArgs e)=>PersistEdits();
     private void PersistEdits(){if(_busy||_draftLoadFailed)return;try{SaveRemaining();}catch(Exception ex){CountText.Text=ex.Message;_=ShowBatchErrorAsync("草稿保存失败",ex.Message);}}
     private async void OnSubmit(object sender,RoutedEventArgs e)
-    {if(_busy)return;SetBusy(true);try{foreach(var invalid in _ready.Where(x=>!Complete(x)).ToArray()){invalid.Reason="数量、库位或资料已变为无效，请修正后重试。";_ready.Remove(invalid);_pending.Add(invalid);}var lines=_ready.Where(x=>x.Selected&&Complete(x)).Select(x=>new BatchInboundLine(x.ReceiptId,x.Raw,x.Sku,x.Quantity!.Value,x.LocationId,x.Name,x.Category,x.PackageName,x.Description)).ToArray();if(lines.Length==0){CountText.Text="没有可提交的 就绪包装。";await ShowBatchErrorAsync("无法提交",CountText.Text);SetBusy(false);return;}IReadOnlyList<BatchInboundSummary> summary;try{summary=InventoryStore.SummarizeBatchInbound(lines);}catch(OverflowException){CountText.Text="汇总数量超过整数范围。";await ShowBatchErrorAsync("无法提交",CountText.Text);SetBusy(false);return;}var dialog=new ContentDialog{Title="确认批量入库",Content=new TextBlock{Text=string.Join("\n",summary.Select(x=>$"{x.Sku} · {ViewModel.StorageLocations.FirstOrDefault(location => location.Id == x.LocationId)?.Name ?? x.LocationId} · +{x.Quantity} · {x.Packages} 包")),TextWrapping=TextWrapping.Wrap},PrimaryButtonText="确认一次提交",CloseButtonText="取消",DefaultButton=ContentDialogButton.Close,XamlRoot=XamlRoot};if(await dialog.ShowAsync()!=ContentDialogResult.Primary){SetBusy(false);return;}var result=ViewModel.CommitBatchInbound(new(lines));if(result.IsSuccess){foreach(var row in _ready.Where(x=>lines.Any(y=>y.ReceiptId==x.ReceiptId)).ToArray())_ready.Remove(row);SaveRemaining();}else await ShowBatchErrorAsync("批量入库失败",result.Message);CountText.Text=result.Message;}catch(Exception ex){await ShowBatchErrorAsync("批量入库失败",ex.Message);}finally{SetBusy(false);}}
+    {if(_busy)return;SetBusy(true);try{foreach(var invalid in _ready.Where(x=>x.Selected&&!Complete(x)).ToArray()){invalid.Reason="数量、库位或资料已变为无效，请修正后重试。";_ready.Remove(invalid);_pending.Add(invalid);}var lines=_ready.Where(x=>x.Selected&&Complete(x)).Select(x=>new BatchInboundLine(x.ReceiptId,x.Raw,x.Sku,x.Quantity!.Value,x.LocationId,x.Name,x.Category,x.PackageName,x.Description)).ToArray();if(lines.Length==0){CountText.Text="没有可提交的 就绪包装。";await ShowBatchErrorAsync("无法提交",CountText.Text);SetBusy(false);return;}IReadOnlyList<BatchInboundSummary> summary;try{summary=InventoryStore.SummarizeBatchInbound(lines);}catch(OverflowException){CountText.Text="汇总数量超过整数范围。";await ShowBatchErrorAsync("无法提交",CountText.Text);SetBusy(false);return;}var dialog=new ContentDialog{Title="确认批量入库",Content=new TextBlock{Text=string.Join("\n",summary.Select(x=>$"{x.Sku} · {ViewModel.StorageLocations.FirstOrDefault(location => location.Id == x.LocationId)?.Name ?? x.LocationId} · +{x.Quantity} · {x.Packages} 包")),TextWrapping=TextWrapping.Wrap},PrimaryButtonText="确认一次提交",CloseButtonText="取消",DefaultButton=ContentDialogButton.Close,XamlRoot=XamlRoot};if(await dialog.ShowAsync()!=ContentDialogResult.Primary){SetBusy(false);return;}var result=ViewModel.CommitBatchInbound(new(lines));if(result.IsSuccess){foreach(var row in _ready.Where(x=>lines.Any(y=>y.ReceiptId==x.ReceiptId)).ToArray())_ready.Remove(row);SaveRemaining();}else await ShowBatchErrorAsync("批量入库失败",result.Message);CountText.Text=result.Message;}catch(Exception ex){await ShowBatchErrorAsync("批量入库失败",ex.Message);}finally{SetBusy(false);}}
     private async void OnClearDraft(object sender,RoutedEventArgs e)
     {
         if (_busy) return;
@@ -343,9 +406,9 @@ public sealed partial class BatchJlcInboundView:Page
     }
     private void SaveRemaining(){var shown=_ready.Concat(_pending).Select(x=>x.ReceiptId).ToHashSet();var captured=_drafts.Load().Where(x=>!shown.Contains(x.ReceiptId)&&!_removed.Contains(x.ReceiptId)&&!ViewModel.IsBatchReceiptCommitted(x.ReceiptId));_drafts.Save(captured.Concat(_ready.Concat(_pending).Select(ToDraft)).ToArray());}
     private void RefreshCount()=>CountText.Text=$"草稿 {_drafts.Load().Count}/500 条 · 待核对 {_ready.Count} · 待处理 {_pending.Count}";
-    private void OnUnloaded(object sender,RoutedEventArgs e){CancelLookupButton.IsEnabled=false;_generation++;_lookupCancellation?.Cancel();if(_draftLoadFailed)return;try{SaveRemaining();}catch(Exception ex){CountText.Text=ex.Message;}}
+    private void OnUnloaded(object sender,RoutedEventArgs e){EndReadyPointerSelection(false);EndPendingPointerSelection();CancelLookupButton.IsEnabled=false;_generation++;_lookupCancellation?.Cancel();if(_draftLoadFailed)return;try{SaveRemaining();}catch(Exception ex){CountText.Text=ex.Message;}}
     private static BatchScanItem ToDraft(BatchInboundEditableRow x)=>new(x.ReceiptId,x.Raw){Status=x.Reason.Length==0&&ReadyForReview(x)?"ready":"pending",Selected=x.Selected,Sku=x.Sku,QuantityText=x.Quantity?.ToString()??"",LocationId=x.LocationId,Name=x.Name,Category=x.Category,PackageName=x.PackageName,Description=x.Description,Error=x.Reason};
     private static BatchInboundEditableRow FromDraft(BatchScanItem x,IReadOnlyList<StorageLocationRecord> locations)=>new(){ReceiptId=x.ReceiptId,Raw=x.Raw,Selected=x.Selected,Sku=x.Sku,QuantityInput=int.TryParse(x.QuantityText,out var q)?q:double.NaN,LocationId=x.LocationId,Name=x.Name,Category=x.Category,PackageName=x.PackageName,Description=x.Description,Reason=x.Error,LocationOptions=locations};
-    private void SetBusy(bool value){_busy=value;ImportOrdersButton.IsEnabled=!value;HeaderBackButton.IsEnabled=!value;CollectButton.IsEnabled=!value;ParseButton.IsEnabled=!value;ClearButton.IsEnabled=!value;ApplyLocationButton.IsEnabled=!value;SubmitButton.IsEnabled=!value;RetryButton.IsEnabled=!value;RemoveButton.IsEnabled=!value;CaptureBox.IsEnabled=!value;ReadyList.IsEnabled=!value;PendingList.IsEnabled=!value;DefaultLocationBox.IsEnabled=!value;CreateLocationButton.IsEnabled=!value;}
+    private void SetBusy(bool value){if(value){EndReadyPointerSelection();EndPendingPointerSelection();}_busy=value;ImportOrdersButton.IsEnabled=!value;HeaderBackButton.IsEnabled=!value;CollectButton.IsEnabled=!value;ParseButton.IsEnabled=!value;ClearButton.IsEnabled=!value;ApplyLocationButton.IsEnabled=!value;SubmitButton.IsEnabled=!value;RetryButton.IsEnabled=!value;RemoveButton.IsEnabled=!value;CaptureBox.IsEnabled=!value;ReadyList.IsEnabled=!value;PendingList.IsEnabled=!value;DefaultLocationBox.IsEnabled=!value;CreateLocationButton.IsEnabled=!value;UpdateReadySelectionState();UpdatePendingSelectionState();}
     private async Task ShowBatchErrorAsync(string title,string message)=>await new ContentDialog{Title=title,Content=new TextBlock{Text=message,TextWrapping=TextWrapping.Wrap},CloseButtonText="关闭",XamlRoot=XamlRoot}.ShowAsync();
 }
