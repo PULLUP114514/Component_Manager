@@ -1,4 +1,9 @@
 <Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:ComponentVault.WinUI.Views" x:Class="ComponentVault.WinUI.Views.BatchJlcInboundView" Unloaded="OnUnloaded">
+    <Page.Resources>
+        <Style x:Key="BatchInboundListItemStyle" TargetType="ListViewItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+    </Page.Resources>
     <Grid Padding="24" RowSpacing="12">
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup>
@@ -29,12 +34,14 @@
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <StackPanel>
                 <TextBlock Style="{StaticResource PageTitleTextStyle}" Text="批量嘉立创入库"/>
-                <TextBlock Style="{StaticResource PageSubtitleTextStyle}" Text="扫码枪回车逐条收集，或粘贴每行一个包装 QR；采集阶段不会联网。"/>
+                <TextBlock Style="{StaticResource PageSubtitleTextStyle}" Text="导入立创商城表格后自动识别，或扫码、逐行粘贴包装 QR；核对后确认入库。"/>
             </StackPanel>
             <Button x:Name="HeaderBackButton" HorizontalAlignment="Right" Click="OnBack" Content="返回库存"/>
         </Grid>
         <Border Grid.Row="1" Style="{StaticResource CardBorderStyle}">
             <StackPanel Spacing="10">
+                <Button x:Name="ImportOrdersButton" Click="OnImportOrders" Content="导入立创商城表格…"/>
+                <TextBlock Text="支持物料明细对账单、订单详情（.xls / .xlsx），按订购数量添加；自动跳过运费、汇总和已导入订单。" TextWrapping="Wrap"/>
                 <TextBox x:Name="CaptureBox" Header="扫码或粘贴" PlaceholderText="扫码后按回车；也可粘贴多行" AcceptsReturn="True" KeyDown="OnCaptureKeyDown"/>
                 <Grid ColumnSpacing="8" RowSpacing="8">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -63,24 +70,21 @@
                                 <Button x:Name="SubmitButton" VerticalAlignment="Center" Click="OnSubmit" Content="确认所选入库" Style="{StaticResource AccentButtonStyle}"/>
                             </StackPanel>
                         </ScrollViewer>
-                        <ListView x:Name="ReadyList" Grid.Row="1">
+                        <ListView x:Name="ReadyList" Grid.Row="1" ItemContainerStyle="{StaticResource BatchInboundListItemStyle}">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="local:BatchInboundEditableRow">
                                     <StackPanel Margin="0,6" Spacing="4">
                                         <CheckBox Content="{x:Bind Summary}" IsChecked="{x:Bind Selected,Mode=TwoWay}" Click="OnDraftFieldChanged"/>
-                                        <TextBlock Text="{x:Bind Specifications}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{x:Bind Specifications}" Visibility="{x:Bind SpecificationsVisibility}" TextWrapping="Wrap"/>
                                         <Grid ColumnSpacing="6" RowSpacing="6">
                                             <VisualStateManager.VisualStateGroups>
                                                 <VisualStateGroup>
                                                     <VisualState x:Name="ReadyCompact">
                                                         <VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="0"/></VisualState.StateTriggers>
                                                         <VisualState.Setters>
-                                                            <Setter Target="ReadyFieldColumn3.Width" Value="0"/>
-                                                            <Setter Target="ReadyFieldColumn4.Width" Value="0"/>
-                                                            <Setter Target="ReadyName.(Grid.Row)" Value="1"/>
-                                                            <Setter Target="ReadyName.(Grid.Column)" Value="0"/>
-                                                            <Setter Target="ReadyPackage.(Grid.Row)" Value="1"/>
-                                                            <Setter Target="ReadyPackage.(Grid.Column)" Value="1"/>
+                                                            <Setter Target="ReadyStockColumn2.Width" Value="0"/>
+                                                            <Setter Target="ReadyLocation.(Grid.Row)" Value="1"/>
+                                                            <Setter Target="ReadyLocation.(Grid.Column)" Value="0"/>
                                                         </VisualState.Setters>
                                                     </VisualState>
                                                     <VisualState x:Name="ReadyWide"><VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="900"/></VisualState.StateTriggers></VisualState>
@@ -89,14 +93,18 @@
                                             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition/>
-                                                <ColumnDefinition/>
-                                                <ColumnDefinition x:Name="ReadyFieldColumn3"/>
-                                                <ColumnDefinition x:Name="ReadyFieldColumn4"/>
+                                                <ColumnDefinition x:Name="ReadyStockColumn2"/>
                                             </Grid.ColumnDefinitions>
                                             <NumberBox Header="数量" Value="{x:Bind QuantityInput,Mode=TwoWay}" Minimum="1" LostFocus="OnDraftFieldLostFocus"/>
-                                            <ComboBox Grid.Column="1" Header="库位" ItemsSource="{x:Bind LocationOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{x:Bind LocationId,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
-                                            <TextBox x:Name="ReadyName" Grid.Column="2" Header="名称" Text="{x:Bind Name,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
-                                            <TextBox x:Name="ReadyPackage" Grid.Column="3" Header="封装" Text="{x:Bind PackageName,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
+                                            <ComboBox x:Name="ReadyLocation" Grid.Column="1" Header="库位" HorizontalAlignment="Stretch" ItemsSource="{x:Bind LocationOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{x:Bind LocationId,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
+                                        </Grid>
+                                        <Grid ColumnSpacing="6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition/>
+                                                <ColumnDefinition/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox Header="名称" Text="{x:Bind Name,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
+                                            <TextBox Grid.Column="1" Header="封装" Text="{x:Bind PackageName,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
                                         </Grid>
                                     </StackPanel>
                                 </DataTemplate>
@@ -118,7 +126,7 @@
                             <Button x:Name="RetryButton" Click="OnRetryPending" Content="重试或标记所选"/>
                             <Button x:Name="RemoveButton" Click="OnRemovePending" Content="移除所选"/>
                         </StackPanel>
-                        <ListView x:Name="PendingList" Grid.Row="2" SelectionMode="Multiple">
+                        <ListView x:Name="PendingList" Grid.Row="2" SelectionMode="Multiple" ItemContainerStyle="{StaticResource BatchInboundListItemStyle}">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="local:BatchInboundEditableRow">
                                     <StackPanel Margin="0,6" Spacing="4">
@@ -140,7 +148,7 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBox Header="C 编号" Text="{x:Bind Sku,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
                                             <NumberBox x:Name="PendingQuantity" Grid.Column="1" Header="数量" Value="{x:Bind QuantityInput,Mode=TwoWay}" Minimum="1" LostFocus="OnDraftFieldLostFocus"/>
-                                            <ComboBox x:Name="PendingLocation" Grid.Column="2" Header="库位" ItemsSource="{x:Bind LocationOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{x:Bind LocationId,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
+                                            <ComboBox x:Name="PendingLocation" Grid.Column="2" Header="库位" HorizontalAlignment="Stretch" ItemsSource="{x:Bind LocationOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{x:Bind LocationId,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
                                         </Grid>
                                         <Grid ColumnSpacing="6">
                                             <Grid.ColumnDefinitions>
