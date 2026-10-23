@@ -27,7 +27,6 @@
         </VisualStateManager.VisualStateGroups>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
         <Grid RowSpacing="8">
@@ -38,24 +37,82 @@
             </StackPanel>
             <Button x:Name="HeaderBackButton" HorizontalAlignment="Right" Click="OnBack" Content="返回库存"/>
         </Grid>
-        <Border Grid.Row="1" Style="{StaticResource CardBorderStyle}">
-            <StackPanel Spacing="10">
-                <Button x:Name="ImportOrdersButton" Click="OnImportOrders" Content="导入立创商城表格…"/>
-                <TextBlock Text="支持物料明细对账单、订单详情（.xls），导入后自动查询每个有效 C 编号，查询结果只补缺失字段；按订购数量添加，自动跳过运费、汇总和已导入订单。" TextWrapping="Wrap"/>
-                <TextBox x:Name="CaptureBox" Header="扫码或粘贴" PlaceholderText="扫码后按回车；也可粘贴多行" AcceptsReturn="True" KeyDown="OnCaptureKeyDown"/>
-                <Grid ColumnSpacing="8" RowSpacing="8">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition x:Name="CaptureColumn3" Width="Auto"/><ColumnDefinition x:Name="CaptureColumn4" Width="Auto"/></Grid.ColumnDefinitions>
-                    <Button x:Name="CollectButton" Click="OnCollect" Content="收集文本"/>
-                    <Button x:Name="ParseButton" Grid.Column="1" Click="OnParse" Content="解析未处理条目" Style="{StaticResource AccentButtonStyle}"/>
-                    <Button x:Name="CancelLookupButton" Grid.Column="2" Click="OnCancelLookup" Content="取消查询" IsEnabled="False"/>
-                    <Button x:Name="ClearButton" Grid.Column="3" Click="OnClearDraft" Content="清空草稿"/>
-                </Grid>
-                <TextBlock x:Name="CountText" TextWrapping="Wrap"/>
-            </StackPanel>
-        </Border>
-        <Pivot Grid.Row="2">
-            <PivotItem Header="入库核对">
+        <Pivot Grid.Row="1">
+            <PivotItem Header="导入">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <Border Style="{StaticResource CardBorderStyle}">
+                        <StackPanel Spacing="10">
+                            <Button x:Name="ImportOrdersButton" Click="OnImportOrders" Content="导入立创商城表格…"/>
+                            <TextBlock Text="支持物料明细对账单、订单详情（.xls），导入后自动查询每个有效 C 编号，查询结果只补缺失字段；按订购数量添加，自动跳过运费、汇总和已导入订单。" TextWrapping="Wrap"/>
+                            <TextBox x:Name="CaptureBox" Header="扫码或粘贴" PlaceholderText="扫码后按回车；也可粘贴多行" AcceptsReturn="True" KeyDown="OnCaptureKeyDown"/>
+                            <Grid ColumnSpacing="8" RowSpacing="8">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition x:Name="CaptureColumn3" Width="Auto"/><ColumnDefinition x:Name="CaptureColumn4" Width="Auto"/></Grid.ColumnDefinitions>
+                                <Button x:Name="CollectButton" Click="OnCollect" Content="收集文本"/>
+                                <Button x:Name="ParseButton" Grid.Column="1" Click="OnParse" Content="解析未处理条目" Style="{StaticResource AccentButtonStyle}"/>
+                                <Button x:Name="CancelLookupButton" Grid.Column="2" Click="OnCancelLookup" Content="取消查询" IsEnabled="False"/>
+                                <Button x:Name="ClearButton" Grid.Column="3" Click="OnClearDraft" Content="清空草稿"/>
+                            </Grid>
+                            <TextBlock x:Name="CountText" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </PivotItem>
+            <PivotItem x:Name="PendingTab" Header="待处理（0）">
+                <Border Style="{StaticResource CardBorderStyle}">
+                    <Grid RowSpacing="10">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="解析、数量或查询失败的包装保留在本页。补齐 C 号、正整数数量、库位、名称、分类和封装后可标记为就绪。" TextWrapping="Wrap"/>
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="RetryButton" Click="OnRetryPending" Content="重试或标记所选"/>
+                            <Button x:Name="RemoveButton" Click="OnRemovePending" Content="移除所选"/>
+                        </StackPanel>
+                        <ListView x:Name="PendingList" Grid.Row="2" SelectionMode="Multiple" ItemContainerStyle="{StaticResource BatchInboundListItemStyle}">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="local:BatchInboundEditableRow">
+                                    <StackPanel Margin="0,6" Spacing="4">
+                                        <TextBlock Text="{x:Bind Reason}" Foreground="DarkOrange" TextWrapping="Wrap"/>
+                                        <Grid ColumnSpacing="6" RowSpacing="6">
+                                            <VisualStateManager.VisualStateGroups><VisualStateGroup>
+                                                <VisualState x:Name="PendingIdentityCompact"><VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="0"/></VisualState.StateTriggers><VisualState.Setters>
+                                                    <Setter Target="PendingIdentityColumn2.Width" Value="0"/><Setter Target="PendingIdentityColumn3.Width" Value="0"/>
+                                                    <Setter Target="PendingQuantity.(Grid.Row)" Value="1"/><Setter Target="PendingQuantity.(Grid.Column)" Value="0"/>
+                                                    <Setter Target="PendingLocation.(Grid.Row)" Value="2"/><Setter Target="PendingLocation.(Grid.Column)" Value="0"/>
+                                                </VisualState.Setters></VisualState>
+                                                <VisualState x:Name="PendingIdentityWide"><VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="900"/></VisualState.StateTriggers></VisualState>
+                                            </VisualStateGroup></VisualStateManager.VisualStateGroups>
+                                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition/>
+                                                <ColumnDefinition x:Name="PendingIdentityColumn2"/>
+                                                <ColumnDefinition x:Name="PendingIdentityColumn3"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox Header="C 编号" Text="{x:Bind Sku,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
+                                            <NumberBox x:Name="PendingQuantity" Grid.Column="1" Header="数量" Value="{x:Bind QuantityInput,Mode=TwoWay}" Minimum="1" LostFocus="OnDraftFieldLostFocus"/>
+                                            <ComboBox x:Name="PendingLocation" Grid.Column="2" Header="库位" HorizontalAlignment="Stretch" ItemsSource="{x:Bind LocationOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{x:Bind LocationId,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
+                                        </Grid>
+                                        <Grid ColumnSpacing="6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition/>
+                                                <ColumnDefinition/>
+                                                <ColumnDefinition/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox Header="名称" Text="{x:Bind Name,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
+                                            <TextBox Grid.Column="1" Header="分类" Text="{x:Bind Category,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
+                                            <TextBox Grid.Column="2" Header="封装" Text="{x:Bind PackageName,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Grid>
+                </Border>
+            </PivotItem>
+            <PivotItem x:Name="ReviewTab" Header="待核对（0）">
                 <Border Style="{StaticResource CardBorderStyle}">
                     <Grid RowSpacing="10">
                         <Grid.RowDefinitions>
@@ -105,60 +162,6 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBox Header="名称" Text="{x:Bind Name,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
                                             <TextBox Grid.Column="1" Header="封装" Text="{x:Bind PackageName,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
-                                        </Grid>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
-                    </Grid>
-                </Border>
-            </PivotItem>
-            <PivotItem Header="待处理">
-                <Border Style="{StaticResource CardBorderStyle}">
-                    <Grid RowSpacing="10">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Text="解析、数量或查询失败的包装保留在本页。补齐 C 号、正整数数量、库位、名称、分类和封装后可标记为就绪。" TextWrapping="Wrap"/>
-                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-                            <Button x:Name="RetryButton" Click="OnRetryPending" Content="重试或标记所选"/>
-                            <Button x:Name="RemoveButton" Click="OnRemovePending" Content="移除所选"/>
-                        </StackPanel>
-                        <ListView x:Name="PendingList" Grid.Row="2" SelectionMode="Multiple" ItemContainerStyle="{StaticResource BatchInboundListItemStyle}">
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="local:BatchInboundEditableRow">
-                                    <StackPanel Margin="0,6" Spacing="4">
-                                        <TextBlock Text="{x:Bind Reason}" Foreground="DarkOrange" TextWrapping="Wrap"/>
-                                        <Grid ColumnSpacing="6" RowSpacing="6">
-                                            <VisualStateManager.VisualStateGroups><VisualStateGroup>
-                                                <VisualState x:Name="PendingIdentityCompact"><VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="0"/></VisualState.StateTriggers><VisualState.Setters>
-                                                    <Setter Target="PendingIdentityColumn2.Width" Value="0"/><Setter Target="PendingIdentityColumn3.Width" Value="0"/>
-                                                    <Setter Target="PendingQuantity.(Grid.Row)" Value="1"/><Setter Target="PendingQuantity.(Grid.Column)" Value="0"/>
-                                                    <Setter Target="PendingLocation.(Grid.Row)" Value="2"/><Setter Target="PendingLocation.(Grid.Column)" Value="0"/>
-                                                </VisualState.Setters></VisualState>
-                                                <VisualState x:Name="PendingIdentityWide"><VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="900"/></VisualState.StateTriggers></VisualState>
-                                            </VisualStateGroup></VisualStateManager.VisualStateGroups>
-                                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition/>
-                                                <ColumnDefinition x:Name="PendingIdentityColumn2"/>
-                                                <ColumnDefinition x:Name="PendingIdentityColumn3"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBox Header="C 编号" Text="{x:Bind Sku,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
-                                            <NumberBox x:Name="PendingQuantity" Grid.Column="1" Header="数量" Value="{x:Bind QuantityInput,Mode=TwoWay}" Minimum="1" LostFocus="OnDraftFieldLostFocus"/>
-                                            <ComboBox x:Name="PendingLocation" Grid.Column="2" Header="库位" HorizontalAlignment="Stretch" ItemsSource="{x:Bind LocationOptions}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{x:Bind LocationId,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
-                                        </Grid>
-                                        <Grid ColumnSpacing="6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition/>
-                                                <ColumnDefinition/>
-                                                <ColumnDefinition/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBox Header="名称" Text="{x:Bind Name,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
-                                            <TextBox Grid.Column="1" Header="分类" Text="{x:Bind Category,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
-                                            <TextBox Grid.Column="2" Header="封装" Text="{x:Bind PackageName,Mode=TwoWay}" LostFocus="OnDraftFieldLostFocus"/>
                                         </Grid>
                                     </StackPanel>
                                 </DataTemplate>

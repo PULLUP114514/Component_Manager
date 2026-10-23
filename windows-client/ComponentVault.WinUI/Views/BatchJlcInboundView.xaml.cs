@@ -27,7 +27,32 @@ public sealed partial class BatchJlcInboundView:Page
 {
     private readonly BatchInboundDraftStore _drafts=new();private readonly LcscPublicLookup _lookup=new();private readonly ObservableCollection<BatchInboundEditableRow> _ready=[];private readonly ObservableCollection<BatchInboundEditableRow> _pending=[];private readonly HashSet<string> _removed=[];private CancellationTokenSource? _lookupCancellation;private int _generation;private bool _draftLoadFailed;private bool _busy;
     private MainViewModel ViewModel=>((App)Application.Current).MainViewModel??throw new InvalidOperationException("MainViewModel unavailable");
-    public BatchJlcInboundView(){InitializeComponent();ReadyList.ItemsSource=_ready;PendingList.ItemsSource=_pending;DefaultLocationBox.ItemsSource=ViewModel.StorageLocations;try{foreach(var item in _drafts.Load()){if(ViewModel.IsBatchReceiptCommitted(item.ReceiptId))continue;if(item.Status=="captured")continue;var row=FromDraft(item,ViewModel.StorageLocations.ToArray());(item.Status=="ready"?_ready:_pending).Add(row);}RefreshCount();}catch(Exception ex){_draftLoadFailed=true;CountText.Text=ex.Message;}}
+    public BatchJlcInboundView()
+    {
+        InitializeComponent();
+        ReadyList.ItemsSource = _ready;
+        PendingList.ItemsSource = _pending;
+        DefaultLocationBox.ItemsSource = ViewModel.StorageLocations;
+        _ready.CollectionChanged += (_, _) => UpdateTabHeaders();
+        _pending.CollectionChanged += (_, _) => UpdateTabHeaders();
+        UpdateTabHeaders();
+        try
+        {
+            foreach (var item in _drafts.Load())
+            {
+                if (ViewModel.IsBatchReceiptCommitted(item.ReceiptId) || item.Status == "captured") continue;
+                var row = FromDraft(item, ViewModel.StorageLocations.ToArray());
+                (item.Status == "ready" ? _ready : _pending).Add(row);
+            }
+            RefreshCount();
+        }
+        catch (Exception ex) { _draftLoadFailed = true; CountText.Text = ex.Message; }
+    }
+    private void UpdateTabHeaders()
+    {
+        PendingTab.Header = $"待处理（{_pending.Count}）";
+        ReviewTab.Header = $"待核对（{_ready.Count}）";
+    }
     private void OnBack(object sender,RoutedEventArgs e){if(_busy)return;if(((App)Application.Current).Window is MainWindow window)window.GoBack();}
     public bool TryPrepareToLeave(){if(_busy)return false;PersistEdits();return true;}
     private void OnCaptureKeyDown(object sender,KeyRoutedEventArgs e){if(!_busy&&e.Key==VirtualKey.Enter&&CaptureBox.Text.IndexOfAny(['\r','\n'])<0){Collect();e.Handled=true;}}
