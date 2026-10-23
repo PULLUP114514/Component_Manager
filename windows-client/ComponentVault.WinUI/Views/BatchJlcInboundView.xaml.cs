@@ -36,14 +36,34 @@ public sealed partial class BatchJlcInboundView:Page
         _lookupCancellation?.Cancel();_lookupCancellation=new();var generation=++_generation;var token=_lookupCancellation.Token;var cache=new Dictionary<string,LcscCatalogLookupResult>(StringComparer.OrdinalIgnoreCase);var locations=ViewModel.StorageLocations.ToArray();var defaultLocation=(DefaultLocationBox.SelectedItem as StorageLocationRecord)?.Id??locations.FirstOrDefault()?.Id??"";
         foreach(var scan in scans){if(token.IsCancellationRequested||generation!=_generation)break;Remove(scan.ReceiptId);var parsed=JlcQrParser.Parse(scan.Raw);var editedSku=LcscPublicCatalog.NormalizeSku(scan.Sku);var sku=editedSku??parsed.Sku;var skuChanged=editedSku is not null&&!editedSku.Equals(parsed.Sku,StringComparison.OrdinalIgnoreCase);var editedQuantity=int.TryParse(scan.QuantityText,out var manualQuantity)&&manualQuantity>0?manualQuantity:(int?)null;var row=new BatchInboundEditableRow{ReceiptId=scan.ReceiptId,Raw=scan.Raw,Selected=scan.Selected,Sku=sku,QuantityInput=editedQuantity??parsed.Quantity??double.NaN,LocationId=string.IsNullOrWhiteSpace(scan.LocationId)?defaultLocation:scan.LocationId,Name=skuChanged?"":scan.Name.Length>0?scan.Name:parsed.PartName??parsed.Model??"",Category=skuChanged?"":scan.Category,PackageName=skuChanged?"":scan.PackageName.Length>0?scan.PackageName:parsed.PackageDetail??"",Description=skuChanged?"":scan.Description,Reason=parsed.ParseError??scan.Error,LocationOptions=locations};
             if(string.IsNullOrWhiteSpace(row.Sku)||row.Quantity is null){_pending.Add(row);continue;}var local=ViewModel.FindActiveComponentBySku(row.Sku);if(local is not null){row.Name=local.Name;row.Category=local.Category;row.PackageName=local.PackageName;row.Description=local.Description;row.Reason="";_ready.Add(row);continue;}
-            try{if(!cache.TryGetValue(row.Sku,out var lookup)){lookup=await _lookup.LookupDetailedAsync(row.Sku,cancellationToken:token);cache[row.Sku]=lookup;}if(generation!=_generation)break;var metadata=lookup.Metadata;if(metadata is null){row.Reason=string.IsNullOrWhiteSpace(lookup.UserMessage)?"商城无精确匹配，请手动补齐资料。":lookup.UserMessage;_pending.Add(row);continue;}if(string.IsNullOrWhiteSpace(scan.Name))row.Name=OfficialSpecifications.AutoName(metadata);row.Category=metadata.Category;row.PackageName=metadata.PackageName??"";row.Description=CatalogNotes(metadata);if(Complete(row)){row.Reason="";_ready.Add(row);}else{row.Reason=$"{lookup.UserMessage} 商城资料不完整，请手动补齐名称、分类和封装。";_pending.Add(row);}}
+            try{if(!cache.TryGetValue(row.Sku,out var lookup)){lookup=await LookupCatalogAsync(row.Sku,token);cache[row.Sku]=lookup;}if(generation!=_generation)break;var metadata=lookup.Metadata;if(metadata is null){row.Reason=string.IsNullOrWhiteSpace(lookup.UserMessage)?"商城无精确匹配，请手动补齐资料。":lookup.UserMessage;_pending.Add(row);continue;}if(string.IsNullOrWhiteSpace(scan.Name))row.Name=OfficialSpecifications.AutoName(metadata);row.Category=metadata.Category;row.PackageName=metadata.PackageName??"";row.Description=CatalogNotes(metadata);if(Complete(row)){row.Reason="";_ready.Add(row);}else{row.Reason=$"{lookup.UserMessage} 商城资料不完整，请手动补齐名称、分类和封装。";_pending.Add(row);}}
             catch(OperationCanceledException){break;}catch(Exception ex){row.Reason=$"查询失败（{ex.GetType().Name}），可重试或手填。";_pending.Add(row);}
         }if(generation==_generation){SaveRemaining();RefreshCount();if(_pending.Count>0)await ShowBatchErrorAsync("部分包装需要处理",$"本批次有 {_pending.Count} 个包装未就绪，已保留在“待处理”页。可重试、手填或移除；就绪项可单独提交。");}
+    }
+    private async Task<LcscCatalogLookupResult> LookupCatalogAsync(string sku, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        CancelLookupButton.IsEnabled = true;
+        try
+        {
+            return await _lookup.LookupDetailedAsync(sku, cancellationToken: cancellationToken);
+        }
+        finally
+        {
+            CancelLookupButton.IsEnabled = false;
+        }
     }
     private static bool Complete(BatchInboundEditableRow x)=>x.Quantity is not null&&LcscPublicCatalog.NormalizeSku(x.Sku) is not null&&!string.IsNullOrWhiteSpace(x.LocationId)&&!string.IsNullOrWhiteSpace(x.Name)&&!string.IsNullOrWhiteSpace(x.Category)&&!string.IsNullOrWhiteSpace(x.PackageName);
     private static string CatalogNotes(LcscProductMetadata m){var lines=new List<string>();void Add(string? x){if(!string.IsNullOrWhiteSpace(x))lines.Add(x);}Add(m.LookupNotice);Add(m.Model is null?null:$"型号：{m.Model}");Add(m.Description is null?null:$"官方描述：{m.Description}");Add(m.Brand is null?null:$"品牌：{m.Brand}");Add($"官方商品页：{m.OfficialUrl}");Add(m.CategoryPath is null?null:$"官方分类路径：{m.CategoryPath}");Add(m.ImageUrl is null?null:$"商品图片：{m.ImageUrl}");Add(m.DatasheetUrl is null?null:$"数据手册：{m.DatasheetUrl}");if(m.Parameters is not null)foreach(var p in m.Parameters)Add($"参数·{p.Key}：{p.Value}");return string.Join("\n",lines);}
     private void Remove(string receipt){var ready=_ready.FirstOrDefault(x=>x.ReceiptId==receipt);if(ready is not null)_ready.Remove(ready);var pending=_pending.FirstOrDefault(x=>x.ReceiptId==receipt);if(pending is not null)_pending.Remove(pending);}
-    private void OnCancelLookup(object sender,RoutedEventArgs e){_generation++;_lookupCancellation?.Cancel();CountText.Text="查询已取消；当前草稿和结果已保留。";}
+    private void OnCancelLookup(object sender,RoutedEventArgs e)
+    {
+        if (!CancelLookupButton.IsEnabled || _lookupCancellation is not { IsCancellationRequested: false }) return;
+        CancelLookupButton.IsEnabled = false;
+        _generation++;
+        _lookupCancellation.Cancel();
+        CountText.Text = "查询已取消；当前草稿和结果已保留。";
+    }
     private async void OnCreateLocation(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
@@ -118,7 +138,7 @@ public sealed partial class BatchJlcInboundView:Page
     }
     private void SaveRemaining(){var shown=_ready.Concat(_pending).Select(x=>x.ReceiptId).ToHashSet();var captured=_drafts.Load().Where(x=>!shown.Contains(x.ReceiptId)&&!_removed.Contains(x.ReceiptId));_drafts.Save(captured.Concat(_ready.Concat(_pending).Select(ToDraft)).ToArray());}
     private void RefreshCount()=>CountText.Text=$"草稿 {_drafts.Load().Count}/500 包 · 就绪 {_ready.Count} · 待处理 {_pending.Count}";
-    private void OnUnloaded(object sender,RoutedEventArgs e){_generation++;_lookupCancellation?.Cancel();if(_draftLoadFailed)return;try{SaveRemaining();}catch(Exception ex){CountText.Text=ex.Message;}}
+    private void OnUnloaded(object sender,RoutedEventArgs e){CancelLookupButton.IsEnabled=false;_generation++;_lookupCancellation?.Cancel();if(_draftLoadFailed)return;try{SaveRemaining();}catch(Exception ex){CountText.Text=ex.Message;}}
     private static BatchScanItem ToDraft(BatchInboundEditableRow x)=>new(x.ReceiptId,x.Raw){Status=x.Reason.Length==0&&Complete(x)?"ready":"pending",Selected=x.Selected,Sku=x.Sku,QuantityText=x.Quantity?.ToString()??"",LocationId=x.LocationId,Name=x.Name,Category=x.Category,PackageName=x.PackageName,Description=x.Description,Error=x.Reason};
     private static BatchInboundEditableRow FromDraft(BatchScanItem x,IReadOnlyList<StorageLocationRecord> locations)=>new(){ReceiptId=x.ReceiptId,Raw=x.Raw,Selected=x.Selected,Sku=x.Sku,QuantityInput=int.TryParse(x.QuantityText,out var q)?q:double.NaN,LocationId=x.LocationId,Name=x.Name,Category=x.Category,PackageName=x.PackageName,Description=x.Description,Reason=x.Error,LocationOptions=locations};
     private void SetBusy(bool value){_busy=value;HeaderBackButton.IsEnabled=!value;CollectButton.IsEnabled=!value;ParseButton.IsEnabled=!value;ClearButton.IsEnabled=!value;ApplyLocationButton.IsEnabled=!value;SubmitButton.IsEnabled=!value;RetryButton.IsEnabled=!value;RemoveButton.IsEnabled=!value;CaptureBox.IsEnabled=!value;ReadyList.IsEnabled=!value;PendingList.IsEnabled=!value;DefaultLocationBox.IsEnabled=!value;CreateLocationButton.IsEnabled=!value;}
